@@ -163,6 +163,15 @@
         .play-card:active { transform: translateY(0); box-shadow: 0px 0px 0px rgba(0,0,0,0.8); }
         .play-title { font-family: 'Press Start 2P', monospace; font-size: 14px; color: white; text-shadow: 2px 2px 0px #000; }
 
+        @media (max-width: 768px) {
+            .playbook-svg { width: 65px; height: 65px; border-width: 2px; }
+            .play-card { padding: 6px; gap: 4px; border-width: 2px; box-shadow: 4px 4px 0px rgba(0,0,0,0.8); }
+            .play-title { font-size: 9px; }
+            .ui-panel { padding: 10px; width: 98%; max-width: 100%; gap: 10px; }
+            .ui-panel h2 { font-size: 16px !important; }
+            .retro-btn { padding: 8px 12px; font-size: 10px; border-width: 2px; }
+        }
+
         #td-banner {
             position: absolute; top: 32%; left: 50%; transform: translate(-50%, -50%) scale(0.3); z-index: 20; text-align: center; font-family: 'Press Start 2P', monospace; pointer-events: none; opacity: 0;
         }
@@ -198,7 +207,7 @@
             width: 90%; max-width: 700px; background-color: rgba(15, 23, 42, 0.95);
             border: 4px solid #ffffff; padding: 20px; z-index: 1000;
             display: none; align-items: stretch; gap: 20px;
-            box-shadow: 10px 10px 0px rgba(0,0,0,0.8);
+            box-shadow: 10px 10px 0px rgba(0,0,0,0.8); cursor: pointer;
         }
         #dialog-avatar {
             width: 100px; height: 100px; border: 4px solid #fff; flex-shrink: 0; background: #94a3b8;
@@ -228,6 +237,7 @@
             padding-left: max(30px, env(safe-area-inset-left));
             padding-right: max(30px, env(safe-area-inset-right));
             padding-bottom: max(30px, env(safe-area-inset-bottom));
+            transition: opacity 0.2s ease;
         }
 
         #joystick-zone {
@@ -270,12 +280,12 @@
     </div>
     <div id="penalty-toast">DELAY OF GAME! -5 YARDS</div>
 
-    <div id="dialog-box">
+    <div id="dialog-box" onclick="advanceDialog()">
         <div id="dialog-avatar"></div>
         <div id="dialog-content">
             <div id="dialog-name">HEAD COACH</div>
             <div id="dialog-text"></div>
-            <div id="dialog-prompt">TAP ACT TO CONTINUE</div>
+            <div id="dialog-prompt">TAP HERE TO CONTINUE</div>
         </div>
     </div>
     
@@ -472,6 +482,16 @@
         let introScriptState = ''; // States: 'WAITING_FOR_DIALOG', 'PRE_SNAP_WAIT', 'SCRIPTED_RUN', 'SCRIPTED_TACKLE', 'COACH_RAGE_QUIT', 'REF_COMMENT', 'FINISHED'
         let introTimer = 0;
         let introDialogFinished = false;
+
+        window.addEventListener('pointerdown', (e) => {
+            if (isIntroScene && introScriptState === 'HEADSET_PROMPT') {
+                if (e.target.closest('#mobile-controls') || e.target.closest('.retro-btn')) return;
+                headset.pickedUp = true;
+                introScriptState = 'QB_ASK_PLAY';
+                hud.innerHTML = "";
+                startDialog("*QB jogs over* \"Coach what play should we run... we have 1 minute left...\"", "QB");
+            }
+        });
 
         function startDialog(text, speaker = 'COACH') {
             previousGameState = gameState;
@@ -1439,6 +1459,25 @@
             updateScreenShake(); updateParticles();
             if (hitStopTimer > 0) { hitStopTimer--; return; }
 
+            let hideControls = gameState === 'DIALOG' || gameState === 'PLAY_CALL' || gameState === 'COIN_TOSS' || 
+                               gameState === 'KICK_CHOICE' || gameState === 'FLIPPING' || gameState === 'GAME_OVER' || 
+                               (isIntroScene && introScriptState !== 'SCRIPTED_RUN' && introScriptState !== 'PRE_SNAP_WAIT');
+                               
+            let mc = document.getElementById('mobile-controls');
+            if (hideControls) {
+                if (mc.style.opacity !== '0') {
+                    mc.style.opacity = '0';
+                    mc.style.pointerEvents = 'none';
+                    resetJoystick();
+                    handleActionUp();
+                }
+            } else {
+                if (mc.style.opacity !== '1') {
+                    mc.style.opacity = '1';
+                    mc.style.pointerEvents = 'auto';
+                }
+            }
+
             if (gameState === 'DIALOG') {
                 if (keys['Space']) {
                     if (!spacePressed) {
@@ -1465,15 +1504,7 @@
                     introTimer--;
                     if (introTimer <= 0) {
                         introScriptState = 'HEADSET_PROMPT';
-                        hud.innerHTML = `<div style="color: #4ade80; font-size: 20px; animation: pulsePoss 1s infinite; text-shadow: 3px 3px 0 #000; background: rgba(10, 15, 25, 0.9); padding: 12px 20px; border: 3px solid #4ade80; border-radius: 4px; display: inline-block;">[PRESS 'A' TO PICK UP HEADSET]</div>`;
-                    }
-                } else if (introScriptState === 'HEADSET_PROMPT') {
-                    if (keys['KeyA']) {
-                        keys['KeyA'] = false; // consume
-                        headset.pickedUp = true;
-                        introScriptState = 'QB_ASK_PLAY';
-                        hud.innerHTML = "";
-                        startDialog("*QB jogs over* \"Coach what play should we run... we have 1 minute left...\"", "QB");
+                        hud.innerHTML = `<div style="color: #4ade80; font-size: 20px; animation: pulsePoss 1s infinite; text-shadow: 3px 3px 0 #000; background: rgba(10, 15, 25, 0.9); padding: 12px 20px; border: 3px solid #4ade80; border-radius: 4px; display: inline-block;">[TAP SCREEN TO PICK UP]</div>`;
                     }
                 }
             }
@@ -2073,7 +2104,8 @@
             const basePPY = 45; const patternScale = PPY / basePPY; ctx.scale(patternScale, patternScale);
             const baseFieldTop = -(FIELD_WIDTH_YARDS / 2) * basePPY; const baseFieldHeight = FIELD_WIDTH_YARDS * basePPY;
 
-            ctx.fillStyle = '#12621e'; ctx.fillRect(-100 * basePPY, -150 * basePPY, 320 * basePPY, 300 * basePPY);
+            // Restricting the draw area massively increases FPS on mobile
+            ctx.fillStyle = '#12621e'; ctx.fillRect(-20 * basePPY, baseFieldTop - 20 * basePPY, 160 * basePPY, baseFieldHeight + 40 * basePPY);
 
             for (let yrd = 0; yrd < FIELD_LENGTH_YARDS; yrd += 5) {
                 if (Math.abs(yrd - camera.currentX) > 50) continue; 
@@ -2083,7 +2115,7 @@
                 ctx.fillRect(yrd * basePPY, baseFieldTop, 5 * basePPY + 0.5, baseFieldHeight);
             }
 
-            if (grassPattern) { ctx.fillStyle = grassPattern; ctx.fillRect(-100 * basePPY, -150 * basePPY, 320 * basePPY, 300 * basePPY); }
+            if (grassPattern) { ctx.fillStyle = grassPattern; ctx.fillRect(-20 * basePPY, baseFieldTop - 20 * basePPY, 160 * basePPY, baseFieldHeight + 40 * basePPY); }
             ctx.restore();
 
             ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(3, PPY * 0.15); ctx.strokeRect(0, fieldTop, 120 * PPY, fieldHeight);
@@ -2547,12 +2579,33 @@
             camera.baseZoom = canvas.height * 0.045; camera.zoom = camera.baseZoom;
         }
 
+        let lastTime = 0;
+        let accumulator = 0;
+        const timeStep = 1000 / 60; // 60 updates per second guarantee
+
+        function loop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            let frameTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // Prevent spiral of death if the browser tab goes inactive
+            if (frameTime > 100) frameTime = 100; 
+
+            accumulator += frameTime;
+            while (accumulator >= timeStep) {
+                update();
+                accumulator -= timeStep;
+            }
+
+            drawGame();
+            requestAnimationFrame(loop);
+        }
+
         document.fonts.ready.then(function () {
             initTextures(); 
             window.addEventListener('resize', resize); resize(); 
-            startIntroSequence(); // Bypasses the coin toss and starts the cinematic clutch sequence
-            function loop() { update(); drawGame(); requestAnimationFrame(loop); }
-            loop(); 
+            startIntroSequence();
+            requestAnimationFrame(loop);
         });
     </script>
 </body>
