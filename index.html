@@ -1572,7 +1572,7 @@
                         } else if (['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState) && !player.isBlocking && !player.isDiving && introScriptState !== 'SCRIPTED_RUN') {
                             player.isDiving = true; player.diveTimer = 0;
                             let dx = 0; let dy = 0;
-                            if (joystick.active) {
+                            if (joystick && joystick.active) {
                                 dx = joystick.normX; dy = joystick.normY;
                             } else {
                                 if (keys['ArrowUp'] || keys['KeyW']) dy -= 1; if (keys['ArrowDown'] || keys['KeyS']) dy += 1;
@@ -1580,7 +1580,7 @@
                             }
                             if (dx === 0 && dy === 0) dx = player.facing;
                             
-                            // Map visual screen direction to 3D world direction to fix isometric skew mapping
+                            // Map visual screen direction to 3D world direction to fix skewed diagonal feeling
                             let worldDy = dy / camera.pitch;
                             let worldDx = (dx - worldDy * camera.skew) / X_STRETCH;
                             let len = Math.sqrt(worldDx*worldDx + worldDy*worldDy) || 1;
@@ -1968,7 +1968,7 @@
                         } else if (player.diveTimer >= 60) { player.isDiving = false; player.diveTimer = 0; }
                     } else if (['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) {
                         let inputX = 0, inputY = 0;
-                        if (joystick.active) { 
+                        if (joystick && joystick.active) { 
                             inputX = joystick.normX; inputY = joystick.normY; 
                             if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) { inputX = 0; inputY = 0; } // Deadzone
                         } else {
@@ -1976,7 +1976,7 @@
                             if (keys['ArrowLeft'] || keys['KeyA']) inputX -= 1; if (keys['ArrowRight'] || keys['KeyD']) inputX += 1;
                         }
                         
-                        if (Math.abs(inputX) > 0.05 || Math.abs(inputY) > 0.05) {
+                        if (inputX !== 0 || inputY !== 0) {
                             isMoving = true; 
                             
                             // Map visual screen direction to 3D world direction to fix skewed diagonal feeling
