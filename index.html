@@ -55,19 +55,13 @@
             width: min(90vw, 480px); box-sizing: border-box;
         }
 
-        /* A tighter variant used for short in-play result callouts (gain/loss/down toasts etc)
-           so they read as a clean, well-fit card instead of the wide menu panel */
         .ui-panel.result-panel { width: min(84vw, 340px); padding: clamp(16px, 5vw, 28px); gap: 10px; }
 
-        /* Add a tactical clipboard look to menus */
         .ui-panel::before {
             content: ''; position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
             width: 60px; height: 20px; background: #94a3b8; border: 4px solid #fff; border-radius: 10px;
         }
 
-        /* Fluid text sizing for result-panel content: uses clamp() so it scales smoothly
-           with the viewport instead of relying only on breakpoints (and covers plain <div>s,
-           not just h2/p, which previously stayed at desktop size on phones). */
         .result-headline { font-family: 'Press Start 2P', monospace; font-size: clamp(18px, 6.5vw, 30px); text-shadow: 3px 3px 0 #000; line-height: 1.3; margin: 0; }
         .result-sub { font-family: 'Press Start 2P', monospace; font-size: clamp(11px, 3.6vw, 16px); color: #cbd5e1; margin: 0; line-height: 1.4; }
         .result-yardage { font-family: 'Press Start 2P', monospace; font-size: clamp(13px, 4.6vw, 22px); text-shadow: 2px 2px 0 #000; margin: 0; }
@@ -85,6 +79,7 @@
 
         .retro-btn:hover { background-color: #3b82f6; transform: translateY(-2px); box-shadow: inset 0 -4px 0 rgba(0,0,0,0.4), 6px 6px 0 rgba(0,0,0,0.8); }
         .retro-btn:active { transform: translateY(2px); box-shadow: inset 0 0px 0 rgba(0,0,0,0.4), 0px 0px 0 rgba(0,0,0,0.8); }
+        .retro-btn.hub-tab.active { background-color: #facc15; color: #1e293b; text-shadow: none; border-color: #1e293b; }
 
         .retro-coin {
             width: 80px; height: 80px; background: radial-gradient(circle, #fde047 0%, #eab308 60%, #a16207 100%);
@@ -164,8 +159,6 @@
         #down-distance.show { display: block; }
         #play-clock.show ~ #down-distance { top: 135px; }
 
-        /* Playbook menu: a comfortable, full-width tappable list by default (works well on
-           narrow phone screens); widens back into a card grid on larger screens below. */
         .playcall-grid { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; margin-top: 8px; }
         .playcall-special { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; margin-top: 14px; }
         .playcall-special .retro-btn { width: 100%; }
@@ -182,7 +175,6 @@
 
         .playbook-svg.menu-icon { width: 56px; height: 56px; border-width: 2px; border-radius: 4px; }
 
-        /* Wider screens: switch back to a wrapped card grid with bigger diagram previews */
         @media (min-width: 620px) {
             .playcall-grid { flex-direction: row; flex-wrap: wrap; justify-content: center; max-width: 600px; }
             .playcall-special { flex-direction: row; max-width: none; }
@@ -306,6 +298,19 @@
     <div class="scanlines"></div>
     <div id="ui-container" class="ui-layer"></div>
     
+    <!-- ADDED: Hub and Transition Elements to fix the 'Exit to Hub' crash -->
+    <div id="transition-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #000; z-index: 3000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease;"></div>
+    
+    <div id="hub-container" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2500; background-color: #0f172a; flex-direction: column; align-items: center; justify-content: center; font-family: 'Press Start 2P', monospace; padding: 20px; overflow-y: auto;">
+        <div style="display: flex; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; justify-content: center;">
+            <button class="retro-btn hub-tab" onclick="switchHubTab('HOME')">HOME</button>
+            <button class="retro-btn hub-tab" onclick="switchHubTab('SHOP')">SHOP</button>
+            <button class="retro-btn hub-tab" onclick="switchHubTab('OFFICE')">OFFICE</button>
+            <button class="retro-btn hub-tab" onclick="switchHubTab('PLAY')">PLAY</button>
+        </div>
+        <div id="hub-content" style="width: 100%; max-width: 600px; background: rgba(15, 23, 42, 0.95); border: 4px solid #ffffff; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 10px 10px 0px rgba(0,0,0,0.8);"></div>
+    </div>
+    
     <div id="td-banner">
         <div class="td-main" id="td-banner-main">TOUCHDOWN!!</div>
         <div class="td-sub" id="td-banner-sub">YOU SCORE! +6</div>
@@ -413,42 +418,18 @@
             joystick.normX = dx / maxDist; joystick.normY = dy / maxDist;
         }
 
-        // If the ACT button is pressed while a pass can be thrown, treat the touch as the start
-        // of pass-aiming instead of a button press — otherwise the button (which sits right where
-        // a thumb naturally starts a "pull back to pass" swipe) swallows the touch and the pass
-        // aim indicator never appears.
-        let actionBtnAimTouchId = null;
+        // Action Button logic - purely for snapping and diving now.
+        // We completely removed the pass aiming logic from here to let the right side of the screen handle it natively.
         const handleActionDown = (e) => {
             if(e) { e.preventDefault(); e.stopPropagation(); }
-            if (canAimPass() && aimPointerId === null) {
-                const touch = (e && e.changedTouches) ? e.changedTouches[0] : null;
-                const rect = canvas.getBoundingClientRect();
-                actionBtnAimTouchId = touch ? touch.identifier : 'action-btn';
-                isAimingPass = true; aimPointerId = actionBtnAimTouchId;
-                let cx = touch ? touch.clientX : rect.left; let cy = touch ? touch.clientY : rect.top;
-                aimStartX = cx - rect.left; aimStartY = cy - rect.top;
-                aimCurrentX = aimStartX; aimCurrentY = aimStartY; updatePassProjection();
-                return;
-            }
             keys['Space'] = true; keys['KeyA'] = true;
             actionBtn.classList.add('active-touch');
         };
         const handleActionMove = (e) => {
-            if (actionBtnAimTouchId === null || !isAimingPass) return;
             if(e) { e.preventDefault(); e.stopPropagation(); }
-            const touch = (e && e.changedTouches) ? e.changedTouches[0] : null;
-            if (!touch) return;
-            const rect = canvas.getBoundingClientRect();
-            aimCurrentX = touch.clientX - rect.left; aimCurrentY = touch.clientY - rect.top;
-            updatePassProjection();
         };
         const handleActionUp = (e) => {
             if(e) { e.preventDefault(); e.stopPropagation(); }
-            if (actionBtnAimTouchId !== null) {
-                actionBtnAimTouchId = null; isAimingPass = false; aimPointerId = null; executePass();
-                actionBtn.classList.remove('active-touch');
-                return;
-            }
             keys['Space'] = false; keys['KeyA'] = false;
             actionBtn.classList.remove('active-touch');
         };
@@ -519,13 +500,6 @@
         const X_STRETCH = 1.6;
         const SKIN_TONES = ['#fbcfe8', '#f5d0b5', '#d4a373', '#a67b5b', '#6b4423', '#3e2723', '#291712'];
 
-        // Converts a raw screen-space input direction (joystick tilt or keyboard dx/dy) into
-        // the world-space direction that will make the character move at a CONSISTENT visual
-        // speed on screen no matter which way it's pushed. The camera's stretch/pitch/skew
-        // distort world movement unevenly across directions, so we first reduce the input to a
-        // pure unit direction, then invert the projection on that unit direction (not on the
-        // already-scaled input) and use the result as-is (without renormalizing) — this is what
-        // keeps the final on-screen speed uniform in every direction.
         function screenInputToWorldDir(inputX, inputY) {
             let len = Math.sqrt(inputX * inputX + inputY * inputY);
             if (len < 0.0001) return { x: 0, y: 0, active: false };
@@ -536,7 +510,7 @@
         }
 
         let player = {
-            x: 60, y: 0, speed: 0.078, facing: 1, animTimer: 0, isCPU: false, isBlocking: false, blockTarget: null, blockTimer: 0,
+            x: 60, y: 0, speed: 0.095, facing: 1, animTimer: 0, isCPU: false, isBlocking: false, blockTarget: null, blockTimer: 0,
             isDiving: false, diveTimer: 0, diveDirX: 0, diveDirY: 0, isLineman: false, isTackling: false, tackleAnimTimer: 0,
             isLunging: false, lungeTimer: 0, lungeDirX: 0, lungeDirY: 0, isMissedTackle: false, missedTackleTimer: 0,
             isIntercepter: false, skinTone: '#d4a373', girth: 1.0, speedModified: true, prevX: 60, prevY: 0
@@ -557,7 +531,7 @@
         let previousGameState = '';
         
         let isIntroScene = false;
-        let introScriptState = ''; // States: 'WAITING_FOR_DIALOG', 'PRE_SNAP_WAIT', 'SCRIPTED_RUN', 'SCRIPTED_TACKLE', 'COACH_RAGE_QUIT', 'REF_COMMENT', 'FINISHED'
+        let introScriptState = ''; 
         let introTimer = 0;
         let introDialogFinished = false;
 
@@ -679,8 +653,8 @@
                     if (introScriptState === 'WAITING_FOR_DIALOG' || introScriptState === 'PRE_SNAP_WAIT') {
                         introDialogFinished = true;
                         introScriptState = 'PRE_SNAP_WAIT';
-                        introTimer = 180; // 3 seconds at 60 FPS
-                        hud.innerHTML = ""; // Clear HUD completely during scripted pause
+                        introTimer = 180; 
+                        hud.innerHTML = ""; 
                     } else if (introScriptState === 'COACH_RAGE_QUIT') {
                         introScriptState = 'REF_COMMENT';
                         startDialog("Well they just lost their head coach! What will they do now?", "REF");
@@ -693,15 +667,15 @@
                         headset.pickedUp = false;
                         headset.x = player.x; 
                         headset.y = (FIELD_WIDTH_YARDS / 2) + 2; 
-                        introTimer = 120; // 2 seconds
+                        introTimer = 120; 
                     } else if (introScriptState === 'QB_ASK_PLAY') {
                         isIntroScene = false;
                         introScriptState = 'FINISHED';
-                        setupScrimmage(); // Bring up playcalling normally
+                        setupScrimmage(); 
                     } else {
                         isIntroScene = false;
                         introScriptState = 'FINISHED';
-                        setupScrimmage(); // Bring up playcalling normally
+                        setupScrimmage(); 
                     }
                 }
             } else {
@@ -779,7 +753,6 @@
                 stadiumFlashes[i].life--;
                 if(stadiumFlashes[i].life <= 0) stadiumFlashes.splice(i,1);
             }
-            // Random stadium flashes during exciting moments
             if (['PLAYING', 'TOUCHDOWN_CELEBRATION', 'BALL_IN_AIR'].includes(gameState) && Math.random() < 0.1) {
                 stadiumFlashes.push({
                     x: Math.random() * canvas.width, y: Math.random() * (canvas.height * 0.3),
@@ -820,7 +793,6 @@
         window.addEventListener('keydown', (e) => { keys[e.code] = true; });
         window.addEventListener('keyup', (e) => keys[e.code] = false);
 
-        // Smoother camera
         const camera = { x: 60, y: 0, zoom: 45, baseZoom: 45, pitch: 0.55, skew: 0.7, target: player, currentX: 60, currentY: 0 };
 
         let gameState = 'COIN_TOSS'; let possession = ''; let playState = ''; let players = []; 
@@ -838,20 +810,23 @@
         let isAimingPass = false; let aimStartX = 0, aimStartY = 0; let aimCurrentX = 0, aimCurrentY = 0; let projectedDestX = 0, projectedDestY = 0; let projectedHangTime = 0;
         let aimPointerId = null;
 
-        canvas.addEventListener('pointermove', (e) => {
-            if (isAimingPass && e.pointerId === aimPointerId) { 
-                const rect = canvas.getBoundingClientRect();
-                aimCurrentX = e.clientX - rect.left; aimCurrentY = e.clientY - rect.top; 
-                updatePassProjection(); 
-            }
-        });
-        
         canvas.addEventListener('pointerdown', (e) => {
+            // Require aiming to start on the right half of the screen
+            if (e.clientX < canvas.width / 2) return;
+            
             if (canAimPass() && aimPointerId === null) {
                 const rect = canvas.getBoundingClientRect();
                 isAimingPass = true; aimPointerId = e.pointerId;
                 aimStartX = e.clientX - rect.left; aimStartY = e.clientY - rect.top;
                 aimCurrentX = aimStartX; aimCurrentY = aimStartY; updatePassProjection();
+            }
+        });
+
+        canvas.addEventListener('pointermove', (e) => {
+            if (isAimingPass && e.pointerId === aimPointerId) { 
+                const rect = canvas.getBoundingClientRect();
+                aimCurrentX = e.clientX - rect.left; aimCurrentY = e.clientY - rect.top; 
+                updatePassProjection(); 
             }
         });
 
@@ -1001,7 +976,8 @@
                     if (!p.girth || p.girth === 1.0) p.girth = 0.95 + Math.random() * 0.15; 
                     if (!p.speedModified) { p.speed = 0.082 + (Math.random() * 0.008); p.speedModified = true; }
                 }
-                if (p === player) { p.speed = 0.078; if (!p.skinTone) p.skinTone = SKIN_TONES[2]; }
+                // Setting Player speed higher as requested!
+                if (p === player) { p.speed = 0.095; if (!p.skinTone) p.skinTone = SKIN_TONES[2]; }
             });
         }
 
@@ -1032,30 +1008,28 @@
             playerScore = 26;
             cpuScore = 32;
             quarter = 4;
-            gameClock = 60; // 1:00 remaining on the clock
-            mainClockStarted = false; // Clock shouldn't run until the ball is snapped
+            gameClock = 60;
+            mainClockStarted = false;
             updateScoreboard();
 
-            lineOfScrimmage = 80; // 80 yards to go for a touchdown
+            lineOfScrimmage = 80;
             offenseDirection = -1;
             down = 1;
             firstDownLine = 70;
             possession = 'PLAYER';
-            selectedPlay = 'DOUBLE_SLANT'; // Pre-select a play so you are lined up
+            selectedPlay = 'DOUBLE_SLANT'; 
             
             setupScrimmage();
 
-            // Handle the 2 second black screen and 1 second fade in
             setTimeout(() => {
                 const overlay = document.getElementById('intro-overlay');
                 if(overlay) overlay.style.opacity = '0';
                 
                 setTimeout(() => {
                     if(overlay) overlay.style.display = 'none';
-                }, 1000); // Wait for the CSS transition to finish before hiding
+                }, 1000); 
             }, 2000);
             
-            // Coach dialog interrupts exactly 5 seconds after boot
             setTimeout(() => {
                 startDialog("GRRRUUAH!!! If we dont get somewhere on this drive, im DONE!");
             }, 5000);
@@ -1132,84 +1106,68 @@
 
         window.exitToHub = function() {
             const overlay = document.getElementById('transition-overlay');
-            overlay.style.pointerEvents = 'auto';
-            overlay.style.opacity = '1';
-            
-            setTimeout(() => {
-                document.getElementById('ui-container').style.display = 'none';
-                document.getElementById('scoreboard').style.display = 'none';
-                document.getElementById('hud').style.display = 'none';
-                document.getElementById('play-clock').style.display = 'none';
-                document.getElementById('down-distance').style.display = 'none';
-                canvas.style.display = 'none';
-                
-                document.getElementById('hub-container').style.display = 'flex';
-                switchHubTab('HOME');
+            if (overlay) {
+                overlay.style.pointerEvents = 'auto';
+                overlay.style.opacity = '1';
                 
                 setTimeout(() => {
-                    overlay.style.opacity = '0';
-                    setTimeout(() => { overlay.style.pointerEvents = 'none'; }, 1000);
-            }, 500); // Small buffer before fading back in
-        }, 2000); // 2 seconds in total darkness
-    };
+                    document.getElementById('ui-container').style.display = 'none';
+                    document.getElementById('scoreboard').style.display = 'none';
+                    document.getElementById('hud').style.display = 'none';
+                    document.getElementById('play-clock').style.display = 'none';
+                    document.getElementById('down-distance').style.display = 'none';
+                    canvas.style.display = 'none';
+                    
+                    document.getElementById('hub-container').style.display = 'flex';
+                    switchHubTab('HOME');
+                    
+                    setTimeout(() => {
+                        overlay.style.opacity = '0';
+                        setTimeout(() => { overlay.style.pointerEvents = 'none'; }, 500);
+                    }, 500); // Small buffer before fading back in
+                }, 1000); 
+            }
+        };
 
-    function generateSimulatedScores() {
-        let teams = [...FRANCHISE_TEAMS].sort(() => 0.5 - Math.random());
-        let results = [];
-        for(let i=0; i<teams.length; i+=2) {
-            if(i+1 >= teams.length) break;
-            let t1 = teams[i]; let t2 = teams[i+1];
+        function generateSimulatedScores() {
+            document.querySelectorAll('.hub-tab').forEach(t => t.classList.remove('active'));
+            const activeTab = document.querySelector(`.hub-tab[onclick="switchHubTab('${tabName}')"]`);
+            if (activeTab) activeTab.classList.add('active');
             
-            // Generate a somewhat realistic football score weighted by their Overall Rating
-            let t1Score = Math.max(0, Math.round(((t1.ratings.ovr / 3) + (Math.random() * 14) - 7) / 3) * 3 + (Math.random()>0.5?1:0)*4);
-            let t2Score = Math.max(0, Math.round(((t2.ratings.ovr / 3) + (Math.random() * 14) - 7) / 3) * 3 + (Math.random()>0.5?1:0)*4);
-            if(t1Score === t2Score) t1Score += 3; // Break ties easily
+            const content = document.getElementById('hub-content');
+            let html = `<div class="hub-panel">`;
             
-            results.push(`${t1.name.toUpperCase()} ${t1Score} - ${t2Score} ${t2.name.toUpperCase()}`);
-        }
-        return results.join('  +++  ');
-    }
+            if (tabName === 'HOME') {
+                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">HOME DASHBOARD</h2>
+                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
+            } else if (tabName === 'SHOP') {
+                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">EQUIPMENT SHOP</h2>
+                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
+            } else if (tabName === 'OFFICE') {
+                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">FRONT OFFICE</h2>
+                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
+            } else if (tabName === 'PLAY') {
+                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">NEXT GAME</h2>
+                         <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 30px; line-height: 2;">Are you ready to defend your title?</p>
+                         <button class="retro-btn" style="background-color: #10b981; font-size: 16px; padding: 15px 30px;" onclick="location.reload()">START NEXT WEEK</button>`;
+            }
+            
+            html += `</div>`;
+            content.innerHTML = html;
+        };
 
-    window.switchHubTab = function(tabName) {
-        document.querySelectorAll('.hub-tab').forEach(t => t.classList.remove('active'));
-        document.querySelector(`.hub-tab[onclick="switchHubTab('${tabName}')"]`).classList.add('active');
-        
-        const content = document.getElementById('hub-content');
-        let html = `<div class="hub-panel">`;
-        
-        if (tabName === 'HOME') {
-            html += `<h2 style="color: #facc15; font-size: 36px; text-shadow: 4px 4px 0 #000; margin-bottom: 24px;">HOME DASHBOARD</h2>
-                     <p style="color: #94a3b8; font-size: 18px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
-        } else if (tabName === 'SHOP') {
-            html += `<h2 style="color: #facc15; font-size: 36px; text-shadow: 4px 4px 0 #000; margin-bottom: 24px;">EQUIPMENT SHOP</h2>
-                     <p style="color: #94a3b8; font-size: 18px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
-        } else if (tabName === 'OFFICE') {
-            html += `<h2 style="color: #facc15; font-size: 36px; text-shadow: 4px 4px 0 #000; margin-bottom: 24px;">FRONT OFFICE</h2>
-                     <p style="color: #94a3b8; font-size: 18px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
-        } else if (tabName === 'PLAY') {
-            html += `<h2 style="color: #facc15; font-size: 36px; text-shadow: 4px 4px 0 #000; margin-bottom: 24px;">NEXT GAME</h2>
-                     <p style="color: #cbd5e1; font-size: 18px; margin-bottom: 40px; line-height: 2;">Are you ready to defend your title?</p>
-                     <button class="retro-btn" style="background-color: #10b981; font-size: 20px; padding: 20px 40px;" onclick="location.reload()">START NEXT WEEK</button>`;
-        }
-        
-        html += `</div>`;
-        content.innerHTML = html;
-    };
+        window.showManageLineup = function() {
+            switchHubTab('OFFICE');
+        };
 
-    window.showManageLineup = function() {
-        // Function disabled temporarily during redesign
-        switchHubTab('OFFICE');
-    };
-
-    window.retryClutchDrive = function() {
-            // Reset state to exactly after the scripted -1 yard loss
+        window.retryClutchDrive = function() {
             playerScore = 26;
             cpuScore = 32;
             quarter = 4;
             gameClock = 60; 
             mainClockStarted = false; 
             
-            lineOfScrimmage = 81; // 2nd and 11
+            lineOfScrimmage = 81;
             offenseDirection = -1;
             down = 2;
             firstDownLine = 70;
@@ -1450,7 +1408,7 @@
             player.hasBall = true; 
             hud.innerHTML = ""; 
             hideUI(); 
-            mainClockStarted = true; // Start the main game clock
+            mainClockStarted = true; 
         }
 
         function getPlaySVG(title, playRoutesHTML) {
@@ -1563,14 +1521,12 @@
                         advanceDialog();
                     }
                 } else spacePressed = false;
-                return; // Freeze the game world while dialog is active
+                return; 
             }
 
-            // Camera movement smoothing logic
             camera.currentX += (camera.x - camera.currentX) * 0.2;
             camera.currentY += (camera.y - camera.currentY) * 0.2;
 
-            // Scripted intro sequence timer
             if (isIntroScene) {
                 if (introScriptState === 'PRE_SNAP_WAIT') {
                     introTimer--;
@@ -1625,7 +1581,7 @@
                         spacePressed = true;
                         
                         let canSnap = true;
-                        if (isIntroScene) canSnap = false; // Block manual snap during intro
+                        if (isIntroScene) canSnap = false; 
                         
                         if (gameState === 'PRE_SNAP' && offenseDirection === -1 && canSnap) { snapBall(); }
                         else if (gameState === 'KICK_POWER') {
@@ -1645,8 +1601,6 @@
                             }
                             if (dx === 0 && dy === 0) dx = player.facing;
                             
-                            // Map visual screen direction to 3D world direction to fix skewed diagonal
-                            // feeling, and keep on-screen dive speed uniform in every direction.
                             let diveDir = screenInputToWorldDir(dx, dy);
                             player.diveDirX = diveDir.x; 
                             player.diveDirY = diveDir.y;
@@ -1990,7 +1944,6 @@
                         }
                     }
 
-                    // Particles for running
                     let pSpeedSqr = (p.x - p.prevX)**2 + (p.y - p.prevY)**2;
                     if (pSpeedSqr > 0.001 && Math.random() < 0.15 && !p.isDiving && !p.isLunging) {
                         spawnDust(p.x, p.y, 0);
@@ -2001,16 +1954,14 @@
                 if (!player.isBlocking) {
                     if (isIntroScene && introScriptState === 'SCRIPTED_RUN') {
                         isMoving = true;
-                        player.x -= player.speed * 0.85; // Run left (towards negative direction of field)
-                        player.y *= 0.85; // Funnel naturally toward the middle
+                        player.x -= player.speed * 0.85; 
+                        player.y *= 0.85; 
                         player.facing = -1;
                         
-                        // Make CPU defense aggressively converge for the instant shutdown
                         players.filter(p => p.isCPU).forEach(p => {
-                            p.x += p.speed * 0.7; // Fast rush
+                            p.x += p.speed * 0.7; 
                         });
 
-                        // Trigger the tackle right as they lose exactly 1 yard (80 to 81)
                         if (player.x <= 81) {
                             let cpuDef = players.find(p => p.isCPU && p.isLineman);
                             if (cpuDef) triggerTackle(player, cpuDef);
@@ -2033,7 +1984,7 @@
                         let inputX = 0, inputY = 0;
                         if (joystick && joystick.active) { 
                             inputX = joystick.normX; inputY = joystick.normY; 
-                            if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) { inputX = 0; inputY = 0; } // Deadzone
+                            if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) { inputX = 0; inputY = 0; } 
                         } else {
                             if (keys['ArrowUp'] || keys['KeyW']) inputY -= 1; if (keys['ArrowDown'] || keys['KeyS']) inputY += 1;
                             if (keys['ArrowLeft'] || keys['KeyA']) inputX -= 1; if (keys['ArrowRight'] || keys['KeyD']) inputX += 1;
@@ -2041,9 +1992,6 @@
                         
                         if (inputX !== 0 || inputY !== 0) {
                             isMoving = true; 
-                            
-                            // Map visual screen direction to 3D world direction to fix skewed diagonal feeling,
-                            // and keep on-screen speed uniform in every direction (see screenInputToWorldDir).
                             let dir = screenInputToWorldDir(inputX, inputY);
                             
                             player.x += dir.x * player.speed;
@@ -2071,7 +2019,6 @@
                 if (gameState === 'TACKLED' && ballCarrier) {
                     ballCarrier.tackleTimer = (ballCarrier.tackleTimer || 0) + 1; let tt = ballCarrier.tackleTimer;
                     if (isIntroScene && introScriptState === 'SCRIPTED_TACKLE') {
-                        // Force QB to stay perfectly around 81 to ensure exactly -1 yard loss.
                         if (ballCarrier.x > 81.2) ballCarrier.x = 81.2;
                         if (ballCarrier.x < 80.8) ballCarrier.x = 80.8;
                     }
@@ -2084,10 +2031,9 @@
                 }
             } 
 
-            // Dynamic camera zoom/targeting
             if (isIntroScene && (introScriptState === 'HEADSET_PAN_DOWN' || introScriptState === 'HEADSET_PROMPT')) {
                 camera.target = headset;
-                camera.zoom += (camera.baseZoom * 3.5 - camera.zoom) * 0.05; // Very close
+                camera.zoom += (camera.baseZoom * 3.5 - camera.zoom) * 0.05; 
             } else if (gameState === 'INTERCEPTION_MINIGAME' || gameState === 'INTERCEPTION_RESULT') {
                 camera.target = intMinigame.defender; camera.zoom += (camera.baseZoom * 1.6 - camera.zoom) * 0.1;
             } else if (gameState === 'TOUCHDOWN_CELEBRATION' && celebratingPlayer) {
@@ -2176,7 +2122,6 @@
             const basePPY = 45; const patternScale = PPY / basePPY; ctx.scale(patternScale, patternScale);
             const baseFieldTop = -(FIELD_WIDTH_YARDS / 2) * basePPY; const baseFieldHeight = FIELD_WIDTH_YARDS * basePPY;
 
-            // Restricting the draw area massively increases FPS on mobile
             ctx.fillStyle = '#12621e'; ctx.fillRect(-20 * basePPY, baseFieldTop - 20 * basePPY, 160 * basePPY, baseFieldHeight + 40 * basePPY);
 
             for (let yrd = 0; yrd < FIELD_LENGTH_YARDS; yrd += 5) {
@@ -2322,11 +2267,10 @@
                 ctx.save();
                 let z0 = 1.2; let ht = projectedHangTime; let pVx = (projectedDestX - player.x) / ht; let pVy = (projectedDestY - player.y) / ht; let g = 0.008; let pVz = ((1.0 - z0) / ht) + (g * ht / 2) + (g / 2);
 
-                // Improved Pass Arc (Dashed Line)
                 ctx.beginPath();
                 ctx.setLineDash([8, 8]);
                 ctx.lineWidth = Math.max(2, camera.zoom * 0.08);
-                ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)'; // Yellowish
+                ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)';
                 ctx.lineCap = 'round';
                 
                 let first = true;
@@ -2347,41 +2291,34 @@
 
             if (headset.active && !headset.pickedUp) {
                 let hScreen = toScreen(headset.x, headset.y);
-                let p = camera.zoom * 0.035; // Base pixel multiplier for a blocky look
+                let p = camera.zoom * 0.035; 
                 ctx.save();
                 ctx.translate(hScreen.x, hScreen.y);
                 
-                // Shadow
                 ctx.fillStyle = 'rgba(0,0,0,0.4)';
                 ctx.fillRect(-10 * p, 4 * p, 22 * p, 4 * p);
 
-                // Headband (blocky arch)
                 ctx.fillStyle = '#111827';
-                ctx.fillRect(-6 * p, -8 * p, 12 * p, 2 * p); // Top
-                ctx.fillRect(-8 * p, -6 * p, 2 * p, 6 * p);  // Left curve
-                ctx.fillRect(6 * p, -6 * p, 2 * p, 6 * p);   // Right curve
+                ctx.fillRect(-6 * p, -8 * p, 12 * p, 2 * p);
+                ctx.fillRect(-8 * p, -6 * p, 2 * p, 6 * p);  
+                ctx.fillRect(6 * p, -6 * p, 2 * p, 6 * p);   
                 
-                // Earcups
                 ctx.fillStyle = '#1f2937';
-                ctx.fillRect(-10 * p, -1 * p, 6 * p, 8 * p); // Left
-                ctx.fillRect(4 * p, -1 * p, 6 * p, 8 * p);   // Right
+                ctx.fillRect(-10 * p, -1 * p, 6 * p, 8 * p);
+                ctx.fillRect(4 * p, -1 * p, 6 * p, 8 * p);   
                 
-                // Cushions
                 ctx.fillStyle = '#374151';
-                ctx.fillRect(-4 * p, 0, 2 * p, 6 * p); // Left cushion
-                ctx.fillRect(2 * p, 0, 2 * p, 6 * p);  // Right cushion
+                ctx.fillRect(-4 * p, 0, 2 * p, 6 * p); 
+                ctx.fillRect(2 * p, 0, 2 * p, 6 * p);  
                 
-                // Mic boom
                 ctx.fillStyle = '#111827';
-                ctx.fillRect(8 * p, 4 * p, 6 * p, 2 * p);  // Boom
-                ctx.fillRect(14 * p, 3 * p, 2 * p, 4 * p); // Tip
+                ctx.fillRect(8 * p, 4 * p, 6 * p, 2 * p);  
+                ctx.fillRect(14 * p, 3 * p, 2 * p, 4 * p); 
                 
-                // Blinking green LED (on the right earcup)
                 if (Math.floor(Date.now() / 150) % 2 === 0) {
                     ctx.fillStyle = '#4ade80';
                     ctx.fillRect(6 * p, 1 * p, 2 * p, 2 * p);
                     
-                    // Blocky glow
                     ctx.fillStyle = 'rgba(74, 222, 128, 0.3)';
                     ctx.fillRect(4 * p, -1 * p, 6 * p, 6 * p);
                     ctx.fillRect(6 * p, -3 * p, 2 * p, 10 * p);
@@ -2448,10 +2385,9 @@
                 ctx.save(); ctx.scale(1 + (g - 1) * 0.25, 1 + (g - 1) * 0.1);
                 rect(-10, -44, 20, 18, cHelmet); ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(-10*pScale, -44*pScale, 8*pScale, 18*pScale); ctx.fillStyle = cHelmetStripe; ctx.fillRect(-2*pScale, -44*pScale, 5*pScale, 18*pScale); ctx.fillStyle = '#111827'; ctx.fillRect(-1*pScale, -35*pScale, 4*pScale, 4*pScale); 
                 
-                // Add Face Mask line for directional clarity
                 ctx.fillStyle = '#111827';
-                ctx.fillRect(8*pScale, -40*pScale, 4*pScale, 12*pScale); // Vertical bar
-                ctx.fillRect(4*pScale, -34*pScale, 8*pScale, 2*pScale);  // Horizontal bar
+                ctx.fillRect(8*pScale, -40*pScale, 4*pScale, 12*pScale); 
+                ctx.fillRect(4*pScale, -34*pScale, 8*pScale, 2*pScale);  
 
                 rect(2, -40, 10, 12, cSkin); ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(2*pScale, -40*pScale, 10*pScale, 3*pScale); 
                 ctx.restore(); ctx.restore(); 
@@ -2622,6 +2558,7 @@
 
                         ctx.save();
                         ctx.translate(indX, indY);
+                        
                         let pulse = 1 + Math.sin(Date.now() / 150) * 0.2;
                         ctx.scale(pulse, pulse);
                         
