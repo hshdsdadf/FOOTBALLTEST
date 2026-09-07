@@ -303,6 +303,125 @@
             background-size: 40px 40px;
             background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
         }
+
+        /* ============ QUICK PLAY SETUP SCREEN ============ */
+        #quickplay-setup {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2600;
+            flex-direction: column; align-items: center; justify-content: flex-start;
+            font-family: 'Press Start 2P', monospace; overflow-y: auto;
+            padding: max(30px, env(safe-area-inset-top)) 16px 30px 16px;
+            background-color: #0f172a;
+            background-image: radial-gradient(circle at 50% 0%, rgba(37,99,235,0.35) 0%, rgba(15,23,42,0) 60%),
+                linear-gradient(45deg, #1e293b 25%, transparent 25%), linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #1e293b 75%), linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+            background-size: 100% 100%, 40px 40px, 40px 40px, 40px 40px, 40px 40px;
+            background-position: 0 0, 0 0, 0 20px, 20px -20px, -20px 0px;
+            opacity: 0; transform: scale(0.97); transition: opacity 0.35s ease, transform 0.35s ease;
+        }
+        #quickplay-setup.show { opacity: 1; transform: scale(1); }
+
+        .qp-header { width: 100%; max-width: 900px; display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+        .qp-back-btn {
+            background-color: #1e293b; color: #facc15; border: 3px solid #facc15; border-radius: 6px; padding: 10px 14px;
+            font-family: 'Press Start 2P', monospace; font-size: 14px; cursor: pointer; box-shadow: 4px 4px 0 rgba(0,0,0,0.8);
+            transition: all 0.1s; flex-shrink: 0;
+        }
+        .qp-back-btn:active { transform: translateY(2px); box-shadow: 0px 0px 0 rgba(0,0,0,0.8); }
+        .qp-title { color: #facc15; font-size: clamp(16px, 4.5vw, 26px); text-shadow: 3px 3px 0 #000; letter-spacing: 1px; flex-grow: 1; text-align: center; }
+
+        .qp-matchup {
+            width: 100%; max-width: 900px; display: flex; align-items: center; justify-content: center; gap: clamp(6px, 2vw, 24px);
+            margin-bottom: 22px; flex-wrap: nowrap;
+        }
+        .qp-team-card {
+            flex: 1 1 0; max-width: 340px; background: rgba(15, 23, 42, 0.92); border: 4px solid #475569; border-radius: 12px;
+            padding: 14px 10px 18px 10px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+            box-shadow: 8px 8px 0px rgba(0,0,0,0.7); position: relative; transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .qp-team-card.qp-home { border-color: #facc15; box-shadow: 8px 8px 0px rgba(0,0,0,0.7), 0 0 24px rgba(250,204,21,0.55); }
+        .qp-side-pill {
+            font-size: clamp(8px, 2.2vw, 10px); padding: 5px 12px; border-radius: 20px; letter-spacing: 1px;
+            background-color: #334155; color: #94a3b8; border: 2px solid #64748b; transition: all 0.25s ease;
+        }
+        .qp-team-card.qp-home .qp-side-pill { background-color: #facc15; color: #1e293b; border-color: #1e293b; text-shadow: none; }
+        .qp-you-tag { font-size: clamp(7px, 2vw, 9px); color: #4ade80; letter-spacing: 1px; margin-top: -2px; }
+
+        .qp-cycle-row { display: flex; align-items: center; justify-content: center; gap: clamp(4px, 1.5vw, 14px); width: 100%; }
+        .qp-arrow {
+            background-color: #2563eb; color: white; border: 3px solid #fff; border-radius: 50%; width: clamp(32px, 8vw, 42px); height: clamp(32px, 8vw, 42px);
+            font-size: clamp(14px, 3.5vw, 18px); display: flex; align-items: center; justify-content: center; cursor: pointer;
+            box-shadow: 3px 3px 0 rgba(0,0,0,0.8); transition: all 0.1s; flex-shrink: 0; text-shadow: 1px 1px 0 #000;
+        }
+        .qp-arrow:active { transform: scale(0.9); box-shadow: 1px 1px 0 rgba(0,0,0,0.8); }
+        .qp-helmet-wrap {
+            width: clamp(120px, 32vw, 180px); aspect-ratio: 220 / 200; flex-shrink: 0;
+            transition: transform 0.16s ease, opacity 0.16s ease; filter: drop-shadow(4px 6px 0 rgba(0,0,0,0.6));
+        }
+        .qp-helmet-wrap.qp-cycling { transform: scale(0.75) rotateY(60deg); opacity: 0; }
+        .qp-helmet-wrap svg { width: 100%; height: 100%; display: block; }
+        .qp-team-name {
+            color: #fff; font-size: clamp(9px, 2.6vw, 13px); text-align: center; text-shadow: 2px 2px 0 #000; line-height: 1.4;
+            min-height: 2.8em; display: flex; align-items: center; justify-content: center; transition: opacity 0.16s ease;
+        }
+        .qp-team-name.qp-cycling { opacity: 0; }
+        .qp-team-stats { font-size: clamp(7px, 2vw, 9px); color: #cbd5e1; text-align: center; line-height: 1.8; transition: opacity 0.16s ease; }
+        .qp-team-stats.qp-cycling { opacity: 0; }
+        .qp-team-stats .qp-ovr { color: #4ade80; }
+        .qp-team-stats .qp-star { color: #facc15; }
+
+        .qp-vs-col { display: flex; flex-direction: column; align-items: center; gap: 10px; flex-shrink: 0; }
+        .qp-vs-badge {
+            color: #f87171; font-size: clamp(16px, 4vw, 24px); text-shadow: 3px 3px 0 #000;
+            background-color: rgba(0,0,0,0.4); border: 3px solid #f87171; border-radius: 50%; width: clamp(44px, 10vw, 58px); height: clamp(44px, 10vw, 58px);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .qp-swap-btn {
+            background-color: #334155; color: #facc15; border: 3px solid #94a3b8; border-radius: 8px; padding: 8px 6px;
+            font-size: clamp(6px, 1.7vw, 8px); cursor: pointer; text-align: center; line-height: 1.5; box-shadow: 3px 3px 0 rgba(0,0,0,0.7);
+            transition: all 0.15s;
+        }
+        .qp-swap-btn:active { transform: scale(0.92) rotate(180deg); }
+
+        .qp-settings-card {
+            width: 100%; max-width: 900px; background: rgba(15, 23, 42, 0.94); border: 4px solid #facc15; border-radius: 12px;
+            padding: 18px clamp(12px, 3vw, 24px); box-shadow: 8px 8px 0px rgba(0,0,0,0.7); display: flex; flex-direction: column; gap: 16px;
+        }
+        .qp-settings-title { color: #facc15; font-size: clamp(12px, 3.2vw, 16px); text-shadow: 2px 2px 0 #000; text-align: center; margin-bottom: 2px; }
+        .qp-setting-row { display: flex; flex-direction: column; gap: 8px; }
+        .qp-setting-label { color: #cbd5e1; font-size: clamp(8px, 2.2vw, 10px); letter-spacing: 1px; display: flex; align-items: center; gap: 8px; }
+        .qp-setting-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+        .qp-chip {
+            background-color: #1e293b; color: #94a3b8; border: 3px solid #475569; border-radius: 6px; padding: 9px 12px;
+            font-size: clamp(7px, 2vw, 9px); cursor: pointer; box-shadow: 3px 3px 0 rgba(0,0,0,0.7); transition: all 0.12s; position: relative;
+        }
+        .qp-chip:active { transform: translateY(2px); box-shadow: 1px 1px 0 rgba(0,0,0,0.7); }
+        .qp-chip.qp-active { background-color: #2563eb; color: #fff; border-color: #fff; }
+        .qp-chip.qp-locked.qp-active { background-color: #475569; color: #e2e8f0; border-color: #94a3b8; }
+        .qp-chip .qp-soon-tag {
+            position: absolute; top: -9px; right: -8px; background-color: #f59e0b; color: #1e293b; font-size: 6px;
+            padding: 3px 5px; border-radius: 4px; border: 2px solid #1e293b; letter-spacing: 0.5px;
+        }
+
+        .qp-kickoff-btn {
+            margin-top: 6px; background-color: #10b981; color: white; border: 4px solid #ffffff; border-radius: 8px; padding: 16px 30px;
+            font-family: 'Press Start 2P', monospace; font-size: clamp(12px, 3.4vw, 16px); cursor: pointer; text-shadow: 2px 2px 0 #000;
+            box-shadow: inset 0 -4px 0 rgba(0,0,0,0.4), 6px 6px 0 rgba(0,0,0,0.8); transition: all 0.1s; width: 100%; max-width: 900px;
+        }
+        .qp-kickoff-btn:active { transform: translateY(3px); box-shadow: inset 0 0px 0 rgba(0,0,0,0.4), 1px 1px 0 rgba(0,0,0,0.8); }
+
+        .qp-toast {
+            position: fixed; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%) translateY(20px);
+            background-color: rgba(15,23,42,0.97); color: #facc15; border: 3px solid #facc15; border-radius: 8px; padding: 12px 18px;
+            font-family: 'Press Start 2P', monospace; font-size: clamp(8px, 2.2vw, 10px); box-shadow: 6px 6px 0 rgba(0,0,0,0.8);
+            z-index: 2700; opacity: 0; pointer-events: none; transition: opacity 0.25s ease, transform 0.25s ease; text-align: center; max-width: 88vw;
+        }
+        .qp-toast.qp-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        @media (max-width: 620px) {
+            .qp-matchup { flex-wrap: wrap; }
+            .qp-team-card { max-width: 46%; padding: 10px 6px 14px 6px; }
+            .qp-vs-col { order: 3; flex-direction: row; width: 100%; justify-content: center; margin-top: 4px; }
+        }
     </style>
 </head>
 <body>
@@ -327,6 +446,18 @@
 
         <div id="hub-content" style="width: 100%; max-width: 800px; flex-grow: 1; min-height: 300px; background: rgba(15, 23, 42, 0.95); border: 4px solid #facc15; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 10px 10px 0px rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center;"></div>
     </div>
+
+    <div id="quickplay-setup">
+        <div class="qp-header">
+            <button class="qp-back-btn" onclick="closeQuickPlaySetup()">&#8592;</button>
+            <div class="qp-title">QUICK PLAY</div>
+            <div style="width: 46px; flex-shrink: 0;"></div>
+        </div>
+        <div id="qp-matchup" class="qp-matchup"></div>
+        <div id="qp-settings" class="qp-settings-card"></div>
+        <button class="qp-kickoff-btn" onclick="qpStartGame()">KICKOFF &#127944;</button>
+    </div>
+    <div id="qp-toast" class="qp-toast"></div>
     
     <div id="td-banner">
         <div class="td-main" id="td-banner-main">TOUCHDOWN!!</div>
@@ -818,7 +949,7 @@
         let gameState = 'COIN_TOSS'; let possession = ''; let playState = ''; let players = []; 
         let lineOfScrimmage = 0; let firstDownLine = 0; let down = 1; let offenseDirection = -1;
         let isKickReturnPlay = false; let isFieldGoalPlay = false; let isPAT = false; let turnoverThisPlay = false;
-        let playerScore = 0; let cpuScore = 0; let quarter = 1; const QUARTER_LENGTH_SECONDS = 180; let gameClock = QUARTER_LENGTH_SECONDS; let mainClockStarted = false;
+        let playerScore = 0; let cpuScore = 0; let quarter = 1; let QUARTER_LENGTH_SECONDS = 180; let gameClock = QUARTER_LENGTH_SECONDS; let mainClockStarted = false;
         const PLAY_CLOCK_SECONDS = 15; let playClock = PLAY_CLOCK_SECONDS; let offeredPlays = []; let clockRunning = false;
         let celebratingPlayer = null; let celebrationTimer = 0; const CELEBRATION_DURATION = 150; 
         let meterValue = 0; let isPuntPlay = false; let meterDelta = 1.8; let dirValue = 0; let dirDelta = 0.025; let lockedPower = 0; let lockedDir = 0;
@@ -1255,7 +1386,7 @@
                     html += `<div style="display: flex; flex-direction: column; width: 100%;">
                                 <button class="retro-btn" style="width: 100%; padding: 10px 8px; font-size: clamp(8px, 2.5vw, 12px); ${btnStyle}" onclick="selectGameMode('${mode}')">${mode.toUpperCase()}</button>
                                 <div id="slide-out-${safeMode}" class="play-slide-out" style="max-height: ${isActive ? '60px' : '0px'}; margin-top: ${isActive ? '8px' : '0px'}; opacity: ${isActive ? '1' : '0'}; overflow: hidden; transition: all 0.2s ease-out; display: flex; justify-content: flex-end;">
-                                    <button class="retro-btn" style="background-color: #10b981; padding: 8px 12px; font-size: clamp(8px, 2vw, 10px); width: 85%; ${isLocked ? 'pointer-events: none; opacity: 0.5;' : ''}" onclick="${isLocked ? '' : 'location.reload()'}">${isLocked ? 'LOCKED' : 'PLAY'}</button>
+                                    <button class="retro-btn" style="background-color: #10b981; padding: 8px 12px; font-size: clamp(8px, 2vw, 10px); width: 85%; ${isLocked ? 'pointer-events: none; opacity: 0.5;' : ''}" onclick="${isLocked ? '' : (mode === 'Quick Play' ? 'openQuickPlaySetup()' : 'location.reload()')}">${isLocked ? 'LOCKED' : 'PLAY'}</button>
                                 </div>
                              </div>`;
                 });
@@ -1292,6 +1423,239 @@
                 activeSlideOut.style.marginTop = '8px';
                 activeSlideOut.style.opacity = '1';
             }
+        };
+
+        // ============ QUICK PLAY: TEAM DATA ============
+        const TEAMS = [
+            { name: 'Lakeside Lions',        colorA: '#6b21a8', colorB: '#facc15', ovr: 94, off: 96, def: 92, star: 'Malik Davis',     pos: 'HB',  archetype: 'Elusive Back (98)' },
+            { name: 'Oak Creek Panthers',     colorA: '#18181b', colorB: '#cbd5e1', ovr: 92, off: 94, def: 90, star: 'Julian Carter',   pos: 'QB',  archetype: 'Field General (96)' },
+            { name: 'Rockwood Mustangs',      colorA: '#18181b', colorB: '#f97316', ovr: 91, off: 92, def: 90, star: 'Xavier Wright',   pos: 'QB',  archetype: 'Dual Threat (95)' },
+            { name: 'Riverdale Rams',         colorA: '#1d4ed8', colorB: '#f8fafc', ovr: 89, off: 85, def: 93, star: 'Dante Hughes',    pos: 'FS',  archetype: 'Ballhawk (95)' },
+            { name: 'Eastside Eagles',        colorA: '#1e40af', colorB: '#facc15', ovr: 88, off: 90, def: 86, star: 'Marcus Tate',     pos: 'WR',  archetype: 'Deep Threat (94)' },
+            { name: 'Metro Thunder',          colorA: '#facc15', colorB: '#1e3a8a', ovr: 88, off: 91, def: 85, star: 'Chris Powell',    pos: 'WR',  archetype: 'Slot (93)' },
+            { name: 'Crestview Crusaders',    colorA: '#991b1b', colorB: '#f8fafc', ovr: 87, off: 84, def: 90, star: 'Elijah Vance',    pos: 'DE',  archetype: 'Pass Rusher (93)' },
+            { name: 'Valley Bulldogs',        colorA: '#7f1d1d', colorB: '#eab308', ovr: 86, off: 89, def: 83, star: 'Deon Brooks',     pos: 'HB',  archetype: 'Power Back (92)' },
+            { name: 'Hilltop Hawks',          colorA: '#b91c1c', colorB: '#18181b', ovr: 84, off: 88, def: 80, star: 'Trey Lawson',     pos: 'WR',  archetype: 'Route Runner (91)' },
+            { name: 'Westbridge Wildcats',    colorA: '#dc2626', colorB: '#f8fafc', ovr: 83, off: 79, def: 87, star: 'Tyrell Jenkins',  pos: 'MLB', archetype: 'Run Stopper (90)' },
+            { name: 'Central City Tigers',    colorA: '#ea580c', colorB: '#18181b', ovr: 82, off: 80, def: 84, star: 'Jamal Reed',      pos: 'CB',  archetype: 'Lockdown (89)' },
+            { name: 'Baytown Buccaneers',     colorA: '#b91c1c', colorB: '#71797e', ovr: 82, off: 81, def: 83, star: 'Rico Mendez',     pos: 'SS',  archetype: 'Hard Hitter (87)' },
+            { name: 'Summit Titans',          colorA: '#0d9488', colorB: '#18181b', ovr: 81, off: 83, def: 79, star: "Kevin O'Connor",  pos: 'LT',  archetype: 'Pass Protector (88)' },
+            { name: 'Southview Spartans',     colorA: '#16a34a', colorB: '#f8fafc', ovr: 80, off: 78, def: 82, star: 'Big Joe Mack',    pos: 'DT',  archetype: 'Nose Tackle (86)' },
+            { name: 'Northwood Knights',      colorA: '#1e3a8a', colorB: '#94a3b8', ovr: 79, off: 76, def: 82, star: 'Caleb Thorne',    pos: 'TE',  archetype: 'Possession (84)' },
+            { name: 'Horizon Huskies',        colorA: '#7dd3fc', colorB: '#94a3b8', ovr: 78, off: 80, def: 76, star: 'Jason Miles',     pos: 'K',   archetype: 'Clutch Kicker (85)' },
+            { name: 'Cedar Ridge Cardinals',  colorA: '#dc2626', colorB: '#facc15', ovr: 76, off: 75, def: 77, star: 'Tyler Boyd',      pos: 'OLB', archetype: 'Coverage (82)' },
+            { name: 'Pine Hills Pioneers',    colorA: '#78350f', colorB: '#eab308', ovr: 74, off: 73, def: 75, star: 'Sam Ford',        pos: 'QB',  archetype: 'Gunslinger (81)' },
+        ];
+
+        function qpAbbr(name) { return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 3); }
+        function qpMascot(name) { return name.split(' ').slice(-1)[0].toUpperCase(); }
+        function hexToRgba(hex, a) {
+            let h = hex.replace('#', '');
+            let r = parseInt(h.substring(0, 2), 16), g = parseInt(h.substring(2, 4), 16), b = parseInt(h.substring(4, 6), 16);
+            return `rgba(${r}, ${g}, ${b}, ${a})`;
+        }
+
+        function qpHelmetSVG(team) {
+            const abbr = qpAbbr(team.name);
+            return `<svg viewBox="0 0 220 200" xmlns="http://www.w3.org/2000/svg">
+                <path d="M30 120 C 25 70, 55 25, 115 22 C 175 20, 205 55, 205 100 C 205 120, 198 132, 185 140 L 178 138 C 160 150, 120 155, 95 152 C 70 149, 45 145, 32 130 Z"
+                      fill="${team.colorA}" stroke="#0f172a" stroke-width="5" stroke-linejoin="round"/>
+                <path d="M108 24 C 100 60, 98 110, 105 150" fill="none" stroke="${team.colorB}" stroke-width="14" stroke-linecap="round"/>
+                <circle cx="150" cy="95" r="14" fill="#0f172a"/><circle cx="150" cy="95" r="9" fill="#1e293b"/>
+                <g fill="none" stroke="#cbd5e1" stroke-width="7" stroke-linecap="round">
+                    <path d="M60 118 C 55 145, 70 168, 100 172"/><path d="M60 118 L 100 128"/>
+                    <path d="M65 140 L 102 148"/><path d="M75 160 L 105 165"/><path d="M100 128 L 100 172"/>
+                </g>
+                <g fill="none" stroke="#475569" stroke-width="2.5" stroke-linecap="round" opacity="0.6">
+                    <path d="M60 118 C 55 145, 70 168, 100 172"/><path d="M60 118 L 100 128"/>
+                    <path d="M65 140 L 102 148"/><path d="M75 160 L 105 165"/>
+                </g>
+                <rect x="88" y="168" width="26" height="10" rx="3" fill="${team.colorB}" stroke="#0f172a" stroke-width="3"/>
+                <circle cx="150" cy="60" r="22" fill="${team.colorB}" stroke="#0f172a" stroke-width="4"/>
+                <text x="150" y="66" text-anchor="middle" font-family="'Press Start 2P', monospace" font-size="15" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${abbr}</text>
+            </svg>`;
+        }
+
+        // ============ QUICK PLAY: STATE ============
+        let qpTeamAIndex = 0;   // your team
+        let qpTeamBIndex = 1;   // opponent
+        let qpPlayerSide = 'HOME'; // HOME or AWAY
+        let qpQuarterMinutes = 3;
+        let qpWeather = 'CLEAR';
+        let qpTimeOfDay = 'DAY';
+        let qpDifficulty = 'PRO';
+        let qpToastTimer = null;
+
+        function qpShowToast(text) {
+            const toast = document.getElementById('qp-toast');
+            toast.textContent = text;
+            toast.classList.add('qp-show');
+            clearTimeout(qpToastTimer);
+            qpToastTimer = setTimeout(() => toast.classList.remove('qp-show'), 1800);
+        }
+
+        function qpTeamCardHTML(cardId, team, isHome, isYou) {
+            return `<div class="qp-team-card ${isHome ? 'qp-home' : ''}" id="${cardId}">
+                <div class="qp-side-pill">${isHome ? 'HOME' : 'AWAY'}</div>
+                ${isYou ? '<div class="qp-you-tag">YOU CONTROL</div>' : '<div class="qp-you-tag" style="color:#94a3b8;">CPU</div>'}
+                <div class="qp-cycle-row">
+                    <div class="qp-arrow" onclick="qpCycleTeam('${cardId === 'qp-card-a' ? 'A' : 'B'}', -1)">&#9664;</div>
+                    <div class="qp-helmet-wrap" id="${cardId}-helmet">${qpHelmetSVG(team)}</div>
+                    <div class="qp-arrow" onclick="qpCycleTeam('${cardId === 'qp-card-a' ? 'A' : 'B'}', 1)">&#9654;</div>
+                </div>
+                <div class="qp-team-name" id="${cardId}-name">${team.name.toUpperCase()}</div>
+                <div class="qp-team-stats" id="${cardId}-stats">
+                    <span class="qp-ovr">OVR ${team.ovr}</span> &nbsp; OFF ${team.off} &nbsp; DEF ${team.def}<br>
+                    <span class="qp-star">${team.star}</span> &middot; ${team.pos} &middot; ${team.archetype}
+                </div>
+            </div>`;
+        }
+
+        function qpChip(category, value, label, active, locked) {
+            return `<div class="qp-chip ${active ? 'qp-active' : ''} ${locked ? 'qp-locked' : ''}" onclick="qpSetOption('${category}', '${value}', ${locked})">${label}${locked ? '<span class="qp-soon-tag">SOON</span>' : ''}</div>`;
+        }
+
+        function renderQuickPlayMatchup() {
+            const teamA = TEAMS[qpTeamAIndex], teamB = TEAMS[qpTeamBIndex];
+            const aIsHome = qpPlayerSide === 'HOME';
+            document.getElementById('qp-matchup').innerHTML = `
+                ${qpTeamCardHTML('qp-card-a', teamA, aIsHome, true)}
+                <div class="qp-vs-col">
+                    <div class="qp-vs-badge">VS</div>
+                    <div class="qp-swap-btn" onclick="qpSwapSides()">SWAP<br>SIDES</div>
+                </div>
+                ${qpTeamCardHTML('qp-card-b', teamB, !aIsHome, false)}
+            `;
+        }
+
+        function renderQuickPlaySettings() {
+            document.getElementById('qp-settings').innerHTML = `
+                <div class="qp-settings-title">GAME SETTINGS</div>
+                <div class="qp-setting-row">
+                    <div class="qp-setting-label">QUARTER LENGTH</div>
+                    <div class="qp-setting-chips">
+                        ${[1,2,3,5].map(m => qpChip('quarter', m, m + ' MIN', qpQuarterMinutes === m, false)).join('')}
+                    </div>
+                </div>
+                <div class="qp-setting-row">
+                    <div class="qp-setting-label">WEATHER</div>
+                    <div class="qp-setting-chips">
+                        ${qpChip('weather', 'CLEAR', 'CLEAR', qpWeather === 'CLEAR', false)}
+                        ${qpChip('weather', 'RAIN', 'RAIN', qpWeather === 'RAIN', true)}
+                        ${qpChip('weather', 'SNOW', 'SNOW', qpWeather === 'SNOW', true)}
+                        ${qpChip('weather', 'WIND', 'WINDY', qpWeather === 'WIND', true)}
+                    </div>
+                </div>
+                <div class="qp-setting-row">
+                    <div class="qp-setting-label">TIME OF DAY</div>
+                    <div class="qp-setting-chips">
+                        ${qpChip('time', 'DAY', 'DAY', qpTimeOfDay === 'DAY', false)}
+                        ${qpChip('time', 'DUSK', 'DUSK', qpTimeOfDay === 'DUSK', true)}
+                        ${qpChip('time', 'NIGHT', 'NIGHT', qpTimeOfDay === 'NIGHT', true)}
+                    </div>
+                </div>
+                <div class="qp-setting-row">
+                    <div class="qp-setting-label">DIFFICULTY</div>
+                    <div class="qp-setting-chips">
+                        ${qpChip('difficulty', 'ROOKIE', 'ROOKIE', qpDifficulty === 'ROOKIE', true)}
+                        ${qpChip('difficulty', 'PRO', 'PRO', qpDifficulty === 'PRO', true)}
+                        ${qpChip('difficulty', 'ALLSTAR', 'ALL-STAR', qpDifficulty === 'ALLSTAR', true)}
+                    </div>
+                </div>
+            `;
+        }
+
+        window.qpCycleTeam = function(side, dir) {
+            const cardId = side === 'A' ? 'qp-card-a' : 'qp-card-b';
+            const helmetEl = document.getElementById(cardId + '-helmet');
+            const nameEl = document.getElementById(cardId + '-name');
+            const statsEl = document.getElementById(cardId + '-stats');
+            [helmetEl, nameEl, statsEl].forEach(el => el && el.classList.add('qp-cycling'));
+
+            setTimeout(() => {
+                let idx = side === 'A' ? qpTeamAIndex : qpTeamBIndex;
+                let otherIdx = side === 'A' ? qpTeamBIndex : qpTeamAIndex;
+                do { idx = (idx + dir + TEAMS.length) % TEAMS.length; } while (idx === otherIdx);
+                if (side === 'A') qpTeamAIndex = idx; else qpTeamBIndex = idx;
+                const team = TEAMS[idx];
+                if (helmetEl) helmetEl.innerHTML = qpHelmetSVG(team);
+                if (nameEl) nameEl.textContent = team.name.toUpperCase();
+                if (statsEl) statsEl.innerHTML = `<span class="qp-ovr">OVR ${team.ovr}</span> &nbsp; OFF ${team.off} &nbsp; DEF ${team.def}<br>
+                    <span class="qp-star">${team.star}</span> &middot; ${team.pos} &middot; ${team.archetype}`;
+                [helmetEl, nameEl, statsEl].forEach(el => el && el.classList.remove('qp-cycling'));
+            }, 160);
+        };
+
+        window.qpSwapSides = function() {
+            qpPlayerSide = qpPlayerSide === 'HOME' ? 'AWAY' : 'HOME';
+            renderQuickPlayMatchup();
+        };
+
+        window.qpSetOption = function(category, value, locked) {
+            if (category === 'quarter') {
+                qpQuarterMinutes = Number(value);
+                QUARTER_LENGTH_SECONDS = qpQuarterMinutes * 60;
+            } else if (category === 'weather') {
+                qpWeather = value;
+                if (locked) qpShowToast(value === 'CLEAR' ? '' : "Weather effects aren't in the game yet \u2014 coming soon!");
+            } else if (category === 'time') {
+                qpTimeOfDay = value;
+                if (locked) qpShowToast("Day/night lighting isn't in the game yet \u2014 coming soon!");
+            } else if (category === 'difficulty') {
+                qpDifficulty = value;
+                if (locked) qpShowToast("CPU difficulty levels aren't in the game yet \u2014 coming soon!");
+            }
+            renderQuickPlaySettings();
+        };
+
+        window.openQuickPlaySetup = function() {
+            renderQuickPlayMatchup();
+            renderQuickPlaySettings();
+            const setup = document.getElementById('quickplay-setup');
+            setup.style.display = 'flex';
+            void setup.offsetWidth;
+            setup.classList.add('show');
+        };
+
+        window.closeQuickPlaySetup = function() {
+            const setup = document.getElementById('quickplay-setup');
+            setup.classList.remove('show');
+            setTimeout(() => { setup.style.display = 'none'; }, 350);
+        };
+
+        window.qpStartGame = function() {
+            const teamA = TEAMS[qpTeamAIndex], teamB = TEAMS[qpTeamBIndex];
+
+            const sbYou = document.querySelector('#scoreboard .sb-team.you');
+            const sbCpu = document.querySelector('#scoreboard .sb-team.cpu');
+            if (sbYou) { sbYou.querySelector('.sb-label').textContent = qpMascot(teamA.name); sbYou.style.backgroundColor = hexToRgba(teamA.colorA, 0.35); }
+            if (sbCpu) { sbCpu.querySelector('.sb-label').textContent = qpMascot(teamB.name); sbCpu.style.backgroundColor = hexToRgba(teamB.colorA, 0.35); }
+
+            QUARTER_LENGTH_SECONDS = qpQuarterMinutes * 60;
+            playerScore = 0; cpuScore = 0; quarter = 1; gameClock = QUARTER_LENGTH_SECONDS; mainClockStarted = false;
+            lineOfScrimmage = 0; offenseDirection = -1; down = 1; firstDownLine = 0; possession = ''; selectedPlay = null;
+            isIntroScene = false; introScriptState = 'FINISHED';
+            particles = []; hitMarkers = []; stadiumFlashes = []; screenShake = { trauma: 0, x: 0, y: 0 };
+
+            const overlay = document.getElementById('transition-overlay');
+            overlay.style.pointerEvents = 'auto'; overlay.style.opacity = '1';
+            setTimeout(() => {
+                document.getElementById('quickplay-setup').classList.remove('show');
+                document.getElementById('quickplay-setup').style.display = 'none';
+                document.getElementById('hub-container').style.display = 'none';
+                document.getElementById('scoreboard').style.display = '';
+                document.getElementById('hud').style.display = '';
+                document.getElementById('ui-container').style.display = '';
+                document.getElementById('play-clock').style.display = '';
+                document.getElementById('down-distance').style.display = '';
+                canvas.style.display = '';
+                updateScoreboard();
+                initCoinToss();
+                setTimeout(() => {
+                    overlay.style.opacity = '0';
+                    setTimeout(() => { overlay.style.pointerEvents = 'none'; }, 500);
+                }, 500);
+            }, 1000);
         };
 
         window.showManageLineup = function() {
