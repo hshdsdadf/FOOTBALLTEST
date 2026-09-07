@@ -301,14 +301,21 @@
     <!-- ADDED: Hub and Transition Elements to fix the 'Exit to Hub' crash -->
     <div id="transition-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: #000; z-index: 3000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease;"></div>
     
-    <div id="hub-container" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2500; background-color: #0f172a; flex-direction: column; align-items: center; justify-content: center; font-family: 'Press Start 2P', monospace; padding: 20px; overflow-y: auto;">
-        <div style="display: flex; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; justify-content: center;">
+    <div id="hub-container" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2500; background-color: #0f172a; background-image: linear-gradient(rgba(250, 204, 21, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(250, 204, 21, 0.05) 1px, transparent 1px); background-size: 20px 20px; flex-direction: column; align-items: center; justify-content: flex-start; font-family: 'Press Start 2P', monospace; padding: max(40px, env(safe-area-inset-top)) 20px 20px 20px; overflow-y: auto;">
+        
+        <div id="hub-header" style="width: 100%; max-width: 800px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <div style="color: #facc15; font-size: clamp(16px, 4vw, 24px); text-shadow: 2px 2px 0 #000;">FRANCHISE</div>
+            <div id="hub-cash" style="background: #1e293b; border: 3px solid #facc15; padding: 10px 15px; color: #4ade80; border-radius: 4px; box-shadow: 4px 4px 0 rgba(0,0,0,0.8); font-size: clamp(12px, 3vw, 16px);">$0</div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 800px;">
             <button class="retro-btn hub-tab" onclick="switchHubTab('HOME')">HOME</button>
             <button class="retro-btn hub-tab" onclick="switchHubTab('SHOP')">SHOP</button>
             <button class="retro-btn hub-tab" onclick="switchHubTab('OFFICE')">OFFICE</button>
             <button class="retro-btn hub-tab" onclick="switchHubTab('PLAY')">PLAY</button>
         </div>
-        <div id="hub-content" style="width: 100%; max-width: 600px; background: rgba(15, 23, 42, 0.95); border: 4px solid #ffffff; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 10px 10px 0px rgba(0,0,0,0.8);"></div>
+        
+        <div id="hub-content" style="width: 100%; max-width: 800px; flex-grow: 1; min-height: 300px; background: rgba(15, 23, 42, 0.95); border: 4px solid #facc15; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 10px 10px 0px rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center;"></div>
     </div>
     
     <div id="td-banner">
@@ -1171,14 +1178,14 @@
             let html = `<div class="hub-panel">`;
             
             if (tabName === 'HOME') {
-                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">HOME DASHBOARD</h2>
-                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
+                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">HOME</h2>
+                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Empty ]</p>`;
             } else if (tabName === 'SHOP') {
-                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">EQUIPMENT SHOP</h2>
-                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
+                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">SHOP</h2>
+                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Empty ]</p>`;
             } else if (tabName === 'OFFICE') {
-                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">FRONT OFFICE</h2>
-                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Layout cleared for redesign ]</p>`;
+                html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">OFFICE</h2>
+                         <p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Empty ]</p>`;
             } else if (tabName === 'PLAY') {
                 html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">NEXT GAME</h2>
                          <p style="color: #cbd5e1; font-size: 14px; margin-bottom: 30px; line-height: 2;">Are you ready to defend your title?</p>
