@@ -810,19 +810,18 @@
         let aimPointerId = null;
 
         // --- DESKTOP (MOUSE) AIMING ---
-        canvas.addEventListener('mousedown', (e) => {
+        window.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#mobile-controls') || e.target.closest('.retro-btn') || e.target.closest('#dialog-box')) return;
             if (e.clientX < window.innerWidth / 2) return; // Must click on right side of screen
             if (canAimPass() && aimPointerId === null) {
                 isAimingPass = true; aimPointerId = 'mouse';
-                const rect = canvas.getBoundingClientRect();
-                aimStartX = e.clientX - rect.left; aimStartY = e.clientY - rect.top;
+                aimStartX = e.clientX; aimStartY = e.clientY;
                 aimCurrentX = aimStartX; aimCurrentY = aimStartY; updatePassProjection();
             }
         });
         window.addEventListener('mousemove', (e) => {
             if (isAimingPass && aimPointerId === 'mouse') {
-                const rect = canvas.getBoundingClientRect();
-                aimCurrentX = e.clientX - rect.left; aimCurrentY = e.clientY - rect.top; updatePassProjection();
+                aimCurrentX = e.clientX; aimCurrentY = e.clientY; updatePassProjection();
             }
         });
         window.addEventListener('mouseup', (e) => {
@@ -832,28 +831,28 @@
         });
 
         // --- MOBILE (MULTI-TOUCH) AIMING ---
-        canvas.addEventListener('touchstart', (e) => {
+        window.addEventListener('touchstart', (e) => {
             if (!canAimPass()) return;
+            // Ensure touches on UI buttons or joystick don't accidentally start a pass
+            if (e.target.closest('#joystick-zone') || e.target.closest('#action-btn') || e.target.closest('.retro-btn')) return;
+            
             for (let i = 0; i < e.changedTouches.length; i++) {
                 let touch = e.changedTouches[i];
-                // Only start aiming if touch is on the right half of the screen
                 if (touch.clientX > window.innerWidth / 2 && aimPointerId === null) {
                     isAimingPass = true; aimPointerId = touch.identifier;
-                    const rect = canvas.getBoundingClientRect();
-                    aimStartX = touch.clientX - rect.left; aimStartY = touch.clientY - rect.top;
+                    aimStartX = touch.clientX; aimStartY = touch.clientY;
                     aimCurrentX = aimStartX; aimCurrentY = aimStartY; updatePassProjection();
                     break;
                 }
             }
         }, {passive: false});
-        
-        canvas.addEventListener('touchmove', (e) => {
+
+        window.addEventListener('touchmove', (e) => {
             if (!isAimingPass) return;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 let touch = e.changedTouches[i];
                 if (touch.identifier === aimPointerId) {
-                    const rect = canvas.getBoundingClientRect();
-                    aimCurrentX = touch.clientX - rect.left; aimCurrentY = touch.clientY - rect.top;
+                    aimCurrentX = touch.clientX; aimCurrentY = touch.clientY;
                     updatePassProjection();
                     if(e.cancelable) e.preventDefault(); // Prevent scrolling while aiming
                     break;
@@ -1151,7 +1150,8 @@
                     document.getElementById('down-distance').style.display = 'none';
                     canvas.style.display = 'none';
                     
-                    document.getElementById('hub-container').style.display = 'flex';
+                    const hub = document.getElementById('hub-container');
+                    if (hub) hub.style.display = 'flex';
                     switchHubTab('HOME');
                     
                     setTimeout(() => {
@@ -1162,7 +1162,7 @@
             }
         };
 
-        function generateSimulatedScores() {
+        window.switchHubTab = function(tabName) {
             document.querySelectorAll('.hub-tab').forEach(t => t.classList.remove('active'));
             const activeTab = document.querySelector(`.hub-tab[onclick="switchHubTab('${tabName}')"]`);
             if (activeTab) activeTab.classList.add('active');
@@ -1186,10 +1186,11 @@
             }
             
             html += `</div>`;
-            content.innerHTML = html;
+            if (content) content.innerHTML = html;
         };
 
         window.showManageLineup = function() {
+            // Function disabled temporarily during redesign
             switchHubTab('OFFICE');
         };
 
