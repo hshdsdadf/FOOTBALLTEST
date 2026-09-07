@@ -1129,7 +1129,7 @@
             }
         };
 
-        function generateSimulatedScores() {
+        window.switchHubTab = function(tabName) {
             document.querySelectorAll('.hub-tab').forEach(t => t.classList.remove('active'));
             const activeTab = document.querySelector(`.hub-tab[onclick="switchHubTab('${tabName}')"]`);
             if (activeTab) activeTab.classList.add('active');
@@ -1161,7 +1161,7 @@
         };
 
         window.retryClutchDrive = function() {
-            playerScore = 26;
+            // Reset state to exactly after the scripted -1 yard loss
             cpuScore = 32;
             quarter = 4;
             gameClock = 60; 
