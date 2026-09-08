@@ -2184,13 +2184,13 @@
                                 let diffAdj = (closestDef.isCPU ? cpuDifficulty : -cpuDifficulty);
                                 let catchProb = 0.94 - coverageFactor * 0.26;
                                 if (ball.isBadPass) catchProb -= 0.15; 
-                                catchProb -= diffAdj * 0.14;
+                                catchProb -= diffAdj * 0.20;
                                 catchProb = Math.max(0.08, Math.min(0.94, catchProb));
 
                                 if (Math.random() < catchProb) { winner = intendedTarget; outcome = 'CATCH'; } 
                                 else {
                                     let intChance = Math.min(0.65, 0.28 + coverageFactor * 0.13 + (ball.isBadPass ? 0.15 : 0));
-                                    intChance += diffAdj * 0.10;
+                                    intChance += diffAdj * 0.16;
                                     intChance = Math.max(0.05, Math.min(0.75, intChance));
                                     if (Math.random() < intChance) { winner = closestDef; outcome = 'INT'; } else { winner = null; outcome = 'PBU'; }
                                 }
@@ -2404,7 +2404,9 @@
 
                                             let nearestRusher = players.filter(pl => pl.isCPU !== p.isCPU && pl.isLineman).sort((a,b) => Math.hypot(a.x-p.x,a.y-p.y) - Math.hypot(b.x-p.x,b.y-p.y))[0];
                                             let underPressure = nearestRusher && Math.hypot(nearestRusher.x - p.x, nearestRusher.y - p.y) < 3.5;
-                                            ball.isBadPass = Math.random() < (underPressure ? 0.62 : 0.32);
+                                            let cleanBadRate = Math.max(0.03, Math.min(0.6, 0.28 - cpuDifficulty * 0.18));
+                                            let pressureBadRate = Math.max(0.1, Math.min(0.95, 0.45 - cpuDifficulty * 0.35));
+                                            ball.isBadPass = Math.random() < (underPressure ? pressureBadRate : cleanBadRate);
 
                                             if (ball.isBadPass) { 
                                                 let missDist = 6 + Math.random() * 8; let missAngle = Math.random() * Math.PI * 2;
