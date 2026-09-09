@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2184,7 +2185,7 @@
                     
                     let CATCH_RADIUS = 1.8;
                     let potentialCatchers = chasers.filter(c => {
-                        let actualDx = ball.x - c.x; let actualDy = ball.y - c.y; let actualDist = Math.sqrt(actualDx*actualDx + actualDy*actualDist);
+                        let actualDx = ball.x - c.x; let actualDy = ball.y - c.y; let actualDist = Math.sqrt(actualDx*actualDx + actualDy*actualDy);
                         return actualDist < CATCH_RADIUS && ball.z < 3.5 && ball.z >= 0;
                     });
                     
@@ -3180,4 +3181,3 @@
     </script>
 </body>
 </html>
-
