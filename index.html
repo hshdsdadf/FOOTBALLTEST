@@ -636,7 +636,7 @@
         }
 
         function getHelmetSVG(p, s, init) {
-            return `<svg viewBox="0 0 32 32" style="width: 100%; height: 100%; filter: drop-shadow(6px 8px 0px rgba(0,0,0,0.8));" shape-rendering="crispEdges">
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" style="width: 100%; height: 100%; filter: drop-shadow(6px 8px 0px rgba(0,0,0,0.8));" shape-rendering="crispEdges">
                 <!-- Outline / Shadow -->
                 <path d="M10,3 h14 v2 h4 v6 h2 v10 h-2 v4 h-4 v2 h-14 v-2 h-6 v-4 h-2 v-12 h2 v-4 h6 v-2 z" fill="#000"/>
                 <!-- Base Shell -->
@@ -669,6 +669,21 @@
                 <text x="12" y="15.8" font-family="'Press Start 2P', monospace" font-size="5" fill="${s}" text-anchor="middle" font-weight="bold">${init}</text>
             </svg>`;
         }
+        
+        let fieldLogoImg = null;
+
+        window.updateFieldLogo = function(team) {
+            let svgStr = getHelmetSVG(team.c1, team.c2, team.name.charAt(0));
+            svgStr = svgStr.replace(/style="[^"]*"/, 'width="512" height="512"');
+            let encoded = encodeURIComponent(svgStr);
+            let dataUrl = "data:image/svg+xml;charset=utf-8," + encoded;
+            
+            let img = new Image();
+            img.onload = function() {
+                fieldLogoImg = img;
+            };
+            img.src = dataUrl;
+        };
 
         window.updateQuickPlayUI = function() {
             let awayTeam = qpTeams[qpState.awayIdx];
@@ -758,6 +773,9 @@
                 canvas.style.display = 'block';
                 
                 isQuickPlay = true;
+                let homeTeam = qpTeams[qpState.homeIdx];
+                updateFieldLogo(homeTeam);
+                
                 let pTeam = qpState.playerSide === 'AWAY' ? qpTeams[qpState.awayIdx] : qpTeams[qpState.homeIdx];
                 let cTeam = qpState.playerSide === 'AWAY' ? qpTeams[qpState.homeIdx] : qpTeams[qpState.awayIdx];
                 
@@ -2166,7 +2184,7 @@
                     
                     let CATCH_RADIUS = 1.8;
                     let potentialCatchers = chasers.filter(c => {
-                        let actualDx = ball.x - c.x; let actualDy = ball.y - c.y; let actualDist = Math.sqrt(actualDx*actualDx + actualDy*actualDy);
+                        let actualDx = ball.x - c.x; let actualDy = ball.y - c.y; let actualDist = Math.sqrt(actualDx*actualDx + actualDy*actualDist);
                         return actualDist < CATCH_RADIUS && ball.z < 3.5 && ball.z >= 0;
                     });
                     
@@ -2634,6 +2652,19 @@
 
             if (grassPattern) { ctx.fillStyle = grassPattern; ctx.fillRect(-20 * basePPY, baseFieldTop - 20 * basePPY, 160 * basePPY, baseFieldHeight + 40 * basePPY); }
             ctx.restore();
+
+            // Draw field logo here
+            if (fieldLogoImg) {
+                ctx.save();
+                let logoSize = 22 * PPY; // 22 yards tall
+                ctx.translate(60 * PPY, 0);
+                // Reverse the X_STRETCH to keep the logo perfectly round/un-stretched in 2D space on the pitch
+                // and flip negatively to make it face left (away from home endzone)
+                ctx.scale(-1 / X_STRETCH, 1);
+                ctx.globalAlpha = 0.6; // Slightly transparent so the grass shows and it feels like faded paint
+                ctx.drawImage(fieldLogoImg, -logoSize/2, -logoSize/2, logoSize, logoSize);
+                ctx.restore();
+            }
 
             ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(3, PPY * 0.15); ctx.strokeRect(0, fieldTop, 120 * PPY, fieldHeight);
 
@@ -3149,3 +3180,4 @@
     </script>
 </body>
 </html>
+
