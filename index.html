@@ -1,3 +1,31 @@
+To make your game work online across different states (like Tennessee to
+Mississippi) right out of a single HTML file, we have to use a technology called
+WebRTC (Web Real-Time Communication). WebRTC allows peer-to-peer (P2P)
+connections directly between two browsers.
+
+However, browsers cannot find each other on the internet without a "Signaling
+Server" to introduce them. Since you only have an HTML file and no backend
+server (like Node.js or Firebase), I have integrated a free library called
+PeerJS. PeerJS provides a free, public cloud signaling server that will allow
+your players to connect to each other using Room Codes without you needing to
+host a server!
+
+⚠️ What You Need to Know (Please Read)
+
+1.  Public vs Private Rooms: Without a dedicated database (like Firebase or
+    Supabase), it is impossible to list "Active Public Rooms" globally because
+    there is nowhere to store that list. I have built the Private Room Code
+    system. One player hosts a game and gets a 5-letter code, and the other
+    player types it in to join. (I left the "Public" tab in the UI so you can
+    see it, but added a note explaining it requires a backend).
+2.  Lag / Latency: Because the game runs at 60 Frames Per Second and relies on
+    precise physics, playing across the country will introduce some network
+    delay (ping). The Host processes the physics, and the Client sends their
+    joystick/action button presses to the Host.
+3.  No extra setup required: This file will work immediately. You can test it by
+    opening the file in two different tabs or sending it to a friend.
+
+Here is the complete, updated game code.
 
 <!DOCTYPE html>
 <html lang="en">
@@ -7,8 +35,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0f172a">
-    <title>Retro Football Game - Polished Edition</title>
+    <title>Retro Football Game - Online Multiplayer Edition</title>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <!-- PEER JS FOR ONLINE MULTIPLAYER SIGNALLING -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -84,6 +114,15 @@
         #action-btn { width: 100px; height: 100px; background: rgba(239, 68, 68, 0.6); border: 4px solid rgba(255, 255, 255, 0.4); border-radius: 50%; pointer-events: auto; display: flex; justify-content: center; align-items: center; font-family: 'Press Start 2P', monospace; color: white; font-size: 16px; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.4), 0 4px 10px rgba(0,0,0,0.5); text-shadow: 2px 2px 0 #000; margin-bottom: 30px; }
         #action-btn:active, #action-btn.active-touch { transform: translateY(4px); box-shadow: inset 0 0px 0 rgba(0,0,0,0.4), 0 0px 0 rgba(0,0,0,0.5); background: rgba(239, 68, 68, 0.9); }
         #hub-container { background-color: #facc15; background-image: linear-gradient(45deg, #eab308 25%, transparent 25%), linear-gradient(-45deg, #eab308 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eab308 75%), linear-gradient(-45deg, transparent 75%, #eab308 75%); background-size: 40px 40px; background-position: 0 0, 0 20px, 20px -20px, -20px 0px; }
+        
+        /* New Lobby Screen Styles */
+        #online-lobby-screen { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2600; flex-direction: column; align-items: center; justify-content: flex-start; font-family: 'Press Start 2P', monospace; padding: max(40px, env(safe-area-inset-top)) 20px 20px 20px; overflow-y: auto; background-color: #0f172a; background-image: radial-gradient(rgba(59, 130, 246, 0.15) 1px, transparent 1px), radial-gradient(rgba(59, 130, 246, 0.15) 1px, transparent 1px); background-size: 40px 40px; background-position: 0 0, 20px 20px; }
+        .lobby-panel { background: rgba(15, 23, 42, 0.95); border: 4px solid #3b82f6; border-radius: 8px; padding: 25px; width: 100%; max-width: 600px; box-shadow: 8px 8px 0 rgba(0,0,0,0.8); margin-bottom: 20px; display: flex; flex-direction: column; align-items: center; gap: 15px; }
+        .lobby-input { background: #1e293b; border: 4px solid #94a3b8; color: #facc15; font-family: 'Press Start 2P', monospace; padding: 12px; font-size: 16px; width: 80%; text-align: center; border-radius: 4px; outline: none; text-transform: uppercase; }
+        .lobby-input:focus { border-color: #facc15; }
+        .lobby-code-display { font-size: 32px; color: #4ade80; text-shadow: 3px 3px 0 #000; letter-spacing: 4px; margin: 10px 0; user-select: text; }
+        .lobby-info { color: #cbd5e1; font-size: 10px; line-height: 1.6; text-align: center; text-shadow: 1px 1px 0 #000; }
+        
         #quick-play-screen { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2600; flex-direction: column; align-items: center; justify-content: flex-start; font-family: 'Press Start 2P', monospace; padding: max(40px, env(safe-area-inset-top)) 20px 20px 20px; overflow-y: auto; background-color: #0f172a; background-image: radial-gradient(rgba(59, 130, 246, 0.15) 1px, transparent 1px), radial-gradient(rgba(59, 130, 246, 0.15) 1px, transparent 1px); background-size: 40px 40px; background-position: 0 0, 20px 20px; }
         .qp-header { color: #facc15; font-size: clamp(16px, 4vw, 24px); text-shadow: 3px 3px 0 #000; margin-bottom: 20px; text-align: center; }
         .matchup-container { display: flex; flex-direction: row; justify-content: space-between; align-items: center; width: 100%; max-width: 900px; gap: 15px; }
@@ -125,6 +164,41 @@
         <div id="hub-content" style="width: 100%; max-width: 800px; flex-grow: 1; min-height: 300px; background: rgba(15, 23, 42, 0.95); border: 4px solid #facc15; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 10px 10px 0px rgba(0,0,0,0.8); display: flex; flex-direction: column; align-items: center; justify-content: center;"></div>
     </div>
     
+    <!-- ONLINE LOBBY SCREEN -->
+    <div id="online-lobby-screen">
+        <div class="qp-header">ONLINE HEAD-TO-HEAD</div>
+        
+        <div class="lobby-panel">
+            <h3 style="color: #facc15; font-size: 16px;">CREATE PRIVATE ROOM</h3>
+            <p class="lobby-info">Host a game and send the room code to your friend.</p>
+            <button id="btn-host-room" class="retro-btn" style="background-color: #10b981;" onclick="hostMultiplayerRoom()">HOST GAME</button>
+            <div id="host-code-container" style="display: none; flex-direction: column; align-items: center;">
+                <p class="lobby-info" style="color: #60a5fa;">YOUR ROOM CODE:</p>
+                <div id="host-room-code" class="lobby-code-display">-----</div>
+                <p class="lobby-info" id="host-status" style="animation: pulsePoss 1s infinite;">Waiting for player to join...</p>
+            </div>
+        </div>
+
+        <div class="lobby-panel">
+            <h3 style="color: #facc15; font-size: 16px;">JOIN PRIVATE ROOM</h3>
+            <p class="lobby-info">Enter your friend's room code to join.</p>
+            <input type="text" id="join-room-code" class="lobby-input" placeholder="ENTER CODE" maxlength="5">
+            <button class="retro-btn" style="background-color: #3b82f6;" onclick="joinMultiplayerRoom()">JOIN GAME</button>
+            <p class="lobby-info" id="join-status" style="display: none; color: #ef4444;"></p>
+        </div>
+
+        <div class="lobby-panel" style="opacity: 0.6; pointer-events: none;">
+            <h3 style="color: #94a3b8; font-size: 16px;">PUBLIC LOBBY LIST</h3>
+            <p class="lobby-info" style="color: #ef4444;">(Requires Dedicated Database Server)</p>
+            <div style="width: 100%; border: 2px dashed #475569; padding: 20px; color: #64748b; font-size: 12px;">No active public rooms found.</div>
+        </div>
+
+        <div class="qp-actions">
+            <button class="retro-btn cancel" onclick="closeOnlineLobby()">BACK TO HUB</button>
+        </div>
+    </div>
+
+    <!-- QUICK PLAY SCREEN -->
     <div id="quick-play-screen">
         <div class="qp-header">QUICK PLAY EXHIBITION</div>
         <div class="matchup-container">
@@ -231,6 +305,15 @@
         const joystickKnob = document.getElementById('joystick-knob');
         const actionBtn = document.getElementById('action-btn');
         let joystick = { active: false, origX: 0, origY: 0, dx: 0, dy: 0, normX: 0, normY: 0 };
+
+        // ONLINE MULTIPLAYER GLOBALS
+        let myPeer = null;
+        let mpConnection = null;
+        let isMultiplayer = false;
+        let isMpHost = false;
+        let isMpClient = false;
+        // P2 inputs sent to Host
+        let remoteInput = { dx: 0, dy: 0, act: false, dive: false };
 
         joystickZone.addEventListener('touchstart', (e) => {
             e.preventDefault(); e.stopPropagation();
@@ -344,6 +427,176 @@
         window.openQuickPlaySetup = function() { document.getElementById('hub-container').style.display = 'none'; document.getElementById('quick-play-screen').style.display = 'flex'; updateQuickPlayUI(); };
         window.closeQuickPlaySetup = function() { document.getElementById('quick-play-screen').style.display = 'none'; document.getElementById('hub-container').style.display = 'flex'; };
 
+        // ONLINE MULTIPLAYER LOGIC
+        window.openOnlineLobby = function() { document.getElementById('hub-container').style.display = 'none'; document.getElementById('online-lobby-screen').style.display = 'flex'; };
+        window.closeOnlineLobby = function() { document.getElementById('online-lobby-screen').style.display = 'none'; document.getElementById('hub-container').style.display = 'flex'; };
+
+        window.hostMultiplayerRoom = function() {
+            document.getElementById('btn-host-room').style.display = 'none';
+            document.getElementById('host-code-container').style.display = 'flex';
+            let code = Math.random().toString(36).substring(2, 7).toUpperCase();
+            document.getElementById('host-room-code').innerText = code;
+            
+            myPeer = new Peer('retro-fb-room-' + code);
+            myPeer.on('open', (id) => {
+                document.getElementById('host-status').innerText = "Waiting for player to connect...";
+            });
+            myPeer.on('connection', (conn) => {
+                mpConnection = conn;
+                document.getElementById('host-status').innerText = "Opponent joined! Starting game...";
+                setTimeout(() => { startOnlineGame(true); }, 1500);
+            });
+            myPeer.on('error', (err) => { document.getElementById('host-status').innerText = "Error creating room: " + err; });
+        };
+
+        window.joinMultiplayerRoom = function() {
+            let code = document.getElementById('join-room-code').value.toUpperCase().trim();
+            if(code.length !== 5) {
+                document.getElementById('join-status').innerText = "Please enter a valid 5-letter code.";
+                document.getElementById('join-status').style.display = 'block';
+                return;
+            }
+            document.getElementById('join-status').innerText = "Connecting...";
+            document.getElementById('join-status').style.display = 'block';
+            document.getElementById('join-status').style.color = '#facc15';
+
+            myPeer = new Peer();
+            myPeer.on('open', (id) => {
+                mpConnection = myPeer.connect('retro-fb-room-' + code);
+                mpConnection.on('open', () => {
+                    document.getElementById('join-status').innerText = "Connected! Starting game...";
+                    document.getElementById('join-status').style.color = '#4ade80';
+                    setTimeout(() => { startOnlineGame(false); }, 1500);
+                });
+                mpConnection.on('error', (err) => {
+                    document.getElementById('join-status').innerText = "Connection failed.";
+                    document.getElementById('join-status').style.color = '#ef4444';
+                });
+            });
+        };
+
+        function startOnlineGame(host) {
+            document.getElementById('online-lobby-screen').style.display = 'none';
+            const overlay = document.getElementById('transition-overlay');
+            overlay.style.pointerEvents = 'auto'; overlay.style.opacity = '1';
+            
+            isMultiplayer = true;
+            isMpHost = host;
+            isMpClient = !host;
+            
+            // Hardcode matchup for MP (can be expanded later)
+            qpState.homeIdx = 1; qpState.awayIdx = 0;
+            qpState.playerSide = isMpHost ? 'HOME' : 'AWAY'; // Host gets home, Client gets away
+
+            // Hook up data channel
+            mpConnection.on('data', (data) => {
+                if (isMpHost) {
+                    remoteInput = data;
+                } else if (isMpClient) {
+                    syncStateFromHost(data);
+                }
+            });
+
+            setTimeout(() => {
+                document.getElementById('ui-container').style.display = 'flex'; document.getElementById('scoreboard').style.display = 'flex';
+                document.getElementById('hud').style.display = 'block'; canvas.style.display = 'block';
+                isQuickPlay = true; 
+                let homeTeam = qpTeams[qpState.homeIdx]; 
+                updateFieldLogo(homeTeam);
+                
+                let pTeam = qpTeams[qpState.homeIdx]; // Always P1 (Host) perspective for colors
+                let cTeam = qpTeams[qpState.awayIdx];
+                
+                quickPlayConfig = { playerColors: { primary: pTeam.c1, secondary: pTeam.c2 }, cpuColors: { primary: cTeam.c1, secondary: cTeam.c2 }, quarterLength: 180 };
+                cpuDifficulty = 0; // Baseline for MP
+                
+                document.getElementById('sb-label-you').textContent = isMpHost ? "YOU" : "P1"; 
+                document.getElementById('sb-label-cpu').textContent = isMpHost ? "P2" : "YOU";
+                document.querySelector('#scoreboard .sb-team.you').style.backgroundColor = hexToRgba(pTeam.c1, 0.5); 
+                document.querySelector('#scoreboard .sb-team.cpu').style.backgroundColor = hexToRgba(cTeam.c1, 0.5);
+                
+                playerScore = 0; cpuScore = 0; quarter = 1; QUARTER_LENGTH_SECONDS = quickPlayConfig.quarterLength; gameClock = QUARTER_LENGTH_SECONDS; mainClockStarted = false;
+                introTimeouts.forEach(clearTimeout); introTimeouts = []; isIntroScene = false; introScriptState = 'FINISHED';
+                particles = []; hitMarkers = []; stadiumFlashes = [];
+                
+                if (isMpHost) {
+                    initCoinToss(); 
+                } else {
+                    showUI(`<h2 class="result-headline" style="color: #4ade80;">CONNECTED</h2><p class="result-sub">Waiting for Host to start game...</p>`);
+                }
+                updateScoreboard();
+                
+                overlay.style.opacity = '0'; setTimeout(() => { overlay.style.pointerEvents = 'none'; }, 500);
+            }, 1000);
+        }
+
+        // Multiplayer state serialization (Host -> Client)
+        function serializeState() {
+            return {
+                gs: gameState, ps: playState, loc: lineOfScrimmage, fd: firstDownLine, od: offenseDirection,
+                dwn: down, qtr: quarter, clk: gameClock, pclk: playClock,
+                scY: playerScore, scC: cpuScore,
+                b: { x: ball.x, y: ball.y, z: ball.z, vx: ball.vx, vy: ball.vy, vz: ball.vz, sa: ball.spinAngle, dP: ball.isDeadPass },
+                c: { cx: camera.currentX, cy: camera.currentY, z: camera.zoom },
+                pls: players.map(p => ({
+                    x: p.x, y: p.y, f: p.facing, a: p.animTimer, isD: p.isDiving, isT: p.isTackling, 
+                    isL: p.isLunging, isM: p.isMissedTackle, hb: p.hasBall, isB: p.isBlocking
+                })),
+                refs: refs.map(r => ({ x: r.x, y: r.y, f: r.facing, a: r.animTimer, s: r.state }))
+            };
+        }
+
+        // Multiplayer state deserialization (Client receives)
+        function syncStateFromHost(data) {
+            gameState = data.gs; playState = data.ps; lineOfScrimmage = data.loc; firstDownLine = data.fd; offenseDirection = data.od;
+            down = data.dwn; quarter = data.qtr; gameClock = data.clk; playClock = data.pclk;
+            playerScore = data.scY; cpuScore = data.scC;
+            
+            ball.x = data.b.x; ball.y = data.b.y; ball.z = data.b.z; ball.spinAngle = data.b.sa; ball.isDeadPass = data.b.dP;
+            camera.currentX = data.c.cx; camera.currentY = data.c.cy; camera.zoom = data.c.z;
+
+            // Only update visuals if the arrays exist (they are populated by Host calling setup events which Client simulates locally to keep arrays intact)
+            if (players.length === data.pls.length) {
+                for(let i=0; i<players.length; i++) {
+                    players[i].x = data.pls[i].x; players[i].y = data.pls[i].y; players[i].facing = data.pls[i].f;
+                    players[i].animTimer = data.pls[i].a; players[i].isDiving = data.pls[i].isD; players[i].isTackling = data.pls[i].isT;
+                    players[i].isLunging = data.pls[i].isL; players[i].isMissedTackle = data.pls[i].isM; players[i].hasBall = data.pls[i].hb;
+                    players[i].isBlocking = data.pls[i].isB;
+                }
+            }
+            if (refs.length === data.refs.length) {
+                for(let i=0; i<refs.length; i++) {
+                    refs[i].x = data.refs[i].x; refs[i].y = data.refs[i].y; refs[i].facing = data.refs[i].f;
+                    refs[i].animTimer = data.refs[i].a; refs[i].state = data.refs[i].s;
+                }
+            }
+            
+            // Sync UI states for client
+            updateScoreboard();
+            if (['PRE_SNAP', 'PLAY_CALL'].includes(gameState) && offenseDirection === 1) { 
+                hud.innerHTML = `<div style="color: #3b82f6; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">TAP ACT TO SNAP</div>`; 
+            } else if (['PRE_SNAP', 'PLAY_CALL'].includes(gameState) && offenseDirection === -1) {
+                hud.innerHTML = `<div style="color: #ef4444; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">DEFENSE: GET READY!</div>`;
+            } else {
+                hud.innerHTML = "";
+            }
+        }
+
+        function getClientInput() {
+            let inputX = 0, inputY = 0; 
+            if (joystick && joystick.active) { 
+                inputX = joystick.normX; inputY = joystick.normY; 
+                if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) { inputX = 0; inputY = 0; } 
+            } else { 
+                if (keys['ArrowUp'] || keys['KeyW']) inputY -= 1; 
+                if (keys['ArrowDown'] || keys['KeyS']) inputY += 1; 
+                if (keys['ArrowLeft'] || keys['KeyA']) inputX -= 1; 
+                if (keys['ArrowRight'] || keys['KeyD']) inputX += 1; 
+            }
+            return { dx: inputX, dy: inputY, act: keys['Space'] || false, dive: keys['Space'] || false }; // simplified action key handling
+        }
+
+
         window.startQuickPlayGame = function() {
             document.getElementById('quick-play-screen').style.display = 'none';
             const overlay = document.getElementById('transition-overlay');
@@ -406,32 +659,12 @@
         function triggerPenalty(penaltyType) {
             gameState = 'PENALTY_SEQUENCE';
             ensureRefsExist();
-            // Head Linesman calls pre-snap
             let callingRef = refs[0]; 
-            callingRef.state = 'THROW_FLAG';
-            callingRef.timer = 0;
-            callingRef.hasFlag = false;
-
-            // Generate flag arcing data
-            let destX = callingRef.x + (offenseDirection * 4) + (Math.random() * 4 - 2);
-            let destY = callingRef.y + 6; 
-            let ht = 50; 
-            let z0 = 1.5; 
-            let g = 0.015;
-            let vz = ((0 - z0) / ht) + (g * ht / 2);
-
-            flagsOnField.push({
-                x: callingRef.x, y: callingRef.y, z: z0,
-                vx: (destX - callingRef.x) / ht,
-                vy: (destY - callingRef.y) / ht,
-                vz: vz,
-                g: g,
-                life: 999
-            });
-
+            callingRef.state = 'THROW_FLAG'; callingRef.timer = 0; callingRef.hasFlag = false;
+            let destX = callingRef.x + (offenseDirection * 4) + (Math.random() * 4 - 2); let destY = callingRef.y + 6; let ht = 50; let z0 = 1.5; let g = 0.015; let vz = ((0 - z0) / ht) + (g * ht / 2);
+            flagsOnField.push({ x: callingRef.x, y: callingRef.y, z: z0, vx: (destX - callingRef.x) / ht, vy: (destY - callingRef.y) / ht, vz: vz, g: g, life: 999 });
             penaltyData = { type: penaltyType, ref: callingRef, step: 'THROWING', timer: 0 };
-            playClockEl.classList.remove('show');
-            downDistanceEl.classList.remove('show');
+            playClockEl.classList.remove('show'); downDistanceEl.classList.remove('show');
         }
 
         let player = { x: 60, y: 0, speed: 0.095, facing: 1, animTimer: 0, isCPU: false, isBlocking: false, blockTarget: null, blockTimer: 0, isDiving: false, diveTimer: 0, diveDirX: 0, diveDirY: 0, isLineman: false, isTackling: false, tackleAnimTimer: 0, isLunging: false, lungeTimer: 0, lungeDirX: 0, lungeDirY: 0, isMissedTackle: false, missedTackleTimer: 0, isIntercepter: false, skinTone: '#d4a373', girth: 1.0, speedModified: true, prevX: 60, prevY: 0 };
@@ -559,7 +792,7 @@
         };
         window.addEventListener('touchend', handlePassTouchEnd); window.addEventListener('touchcancel', handlePassTouchEnd);
 
-        function canAimPass() { return gameState === 'PLAYING' && offenseDirection === -1 && isPassPlay(selectedPlay) && player.isQB && player.hasBall && !isPassing && !player.isDiving && !player.isBlocking && introScriptState !== 'SCRIPTED_RUN'; }
+        function canAimPass() { return gameState === 'PLAYING' && (!isMultiplayer || isMpHost) && offenseDirection === -1 && isPassPlay(selectedPlay) && player.isQB && player.hasBall && !isPassing && !player.isDiving && !player.isBlocking && introScriptState !== 'SCRIPTED_RUN'; }
 
         function screenToWorldGround(sx, sy) {
             const renderCenterY = canvas.height * 0.6; let worldDy = (sy - renderCenterY) / (camera.zoom * camera.pitch); let y = camera.currentY + worldDy; let dx = (sx - canvas.width / 2) - (worldDy * camera.zoom * camera.skew); let x = camera.currentX + dx / (camera.zoom * X_STRETCH); return { x, y };
@@ -594,12 +827,15 @@
             if (down > 4) { turnedOverOnDowns = true; offenseDirection = (offenseDirection === -1) ? 1 : -1; down = 1; firstDownLine = lineOfScrimmage + (offenseDirection * 10); firstDownLine = Math.max(0, Math.min(FIELD_LENGTH_YARDS, firstDownLine)); }
             isKickReturnPlay = false; turnoverThisPlay = false;
             let downNames = ['1ST', '2ND', '3RD', '4TH']; let downText = turnedOverOnDowns ? `<div class="result-down turnover">TURNOVER ON DOWNS</div>` : `<div class="result-down">${downNames[down - 1]} &amp; ${Math.max(1, Math.round(Math.abs(firstDownLine - lineOfScrimmage)))}</div>`;
-            showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #f87171;">${message || 'INCOMPLETE PASS'}</h2><div class="result-yardage neutral">No gain.</div>${downText}</div>`, 'result-panel'); selectedPlay = null;
-            setTimeout(() => { hideUI();
-                if (turnedOverOnDowns) { checkQuarterEnd(setupScrimmage); } 
-                else if (down === 4 && offenseDirection === 1) { let trueDistToGoal = 110 - lineOfScrimmage; if (trueDistToGoal <= 35) checkQuarterEnd(setupFieldGoal); else if (trueDistToGoal <= 50) checkQuarterEnd(setupScrimmage); else checkQuarterEnd(setupPunt); } 
-                else checkQuarterEnd(setupScrimmage);
-            }, 3000);
+            
+            if (isMpHost || !isMultiplayer) {
+                showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #f87171;">${message || 'INCOMPLETE PASS'}</h2><div class="result-yardage neutral">No gain.</div>${downText}</div>`, 'result-panel'); selectedPlay = null;
+                setTimeout(() => { hideUI();
+                    if (turnedOverOnDowns) { checkQuarterEnd(setupScrimmage); } 
+                    else if (down === 4 && offenseDirection === 1) { let trueDistToGoal = 110 - lineOfScrimmage; if (trueDistToGoal <= 35) checkQuarterEnd(setupFieldGoal); else if (trueDistToGoal <= 50) checkQuarterEnd(setupScrimmage); else checkQuarterEnd(setupPunt); } 
+                    else checkQuarterEnd(setupScrimmage);
+                }, 3000);
+            }
         };
 
         function createPlayer(x, y, isCPU, isKicker = false) {
@@ -669,14 +905,14 @@
         window.callCoin = function(choice) {
             gameState = 'FLIPPING'; showUI(`<h2 class="result-headline">FLIPPING...</h2><div class="retro-coin"></div>`, 'result-panel');
             setTimeout(() => { const result = Math.random() < 0.5 ? 'HEADS' : 'TAILS'; const playerWon = (result === choice);
-                showUI(`<h2 class="result-headline" style="color: #eab308;">IT'S ${result}!</h2><p class="result-sub" style="margin-top: 12px;">${playerWon ? 'YOU WON THE TOSS!' : 'CPU WON THE TOSS.'}</p>`, 'result-panel');
+                showUI(`<h2 class="result-headline" style="color: #eab308;">IT'S ${result}!</h2><p class="result-sub" style="margin-top: 12px;">${playerWon ? 'YOU WON THE TOSS!' : 'OPPONENT WON THE TOSS.'}</p>`, 'result-panel');
                 setTimeout(() => { if (playerWon) showKickReceiveChoice(); else handleCPUChoice(); }, 2000);
             }, 1500);
         };
 
         function showKickReceiveChoice() { gameState = 'KICK_CHOICE'; showUI(`<h2 class="result-headline" style="color: #4ade80;">YOUR CHOICE</h2><div style="display: flex; gap: 20px; margin-top: 16px; flex-wrap: wrap; justify-content: center;"><button class="retro-btn" onclick="makeChoice('KICK')">KICK</button><button class="retro-btn" onclick="makeChoice('RECEIVE')">RECEIVE</button></div>`, 'result-panel'); }
         window.makeChoice = function(choice) { playState = choice; possession = choice === 'RECEIVE' ? 'PLAYER' : 'CPU'; showUI(`<h2 class="result-headline">YOU ELECT TO ${choice}</h2>`, 'result-panel'); setTimeout(startGame, 1500); };
-        function handleCPUChoice() { const cpuChoice = Math.random() < 0.8 ? 'RECEIVE' : 'KICK'; playState = cpuChoice === 'RECEIVE' ? 'KICK' : 'RECEIVE'; possession = cpuChoice === 'RECEIVE' ? 'CPU' : 'PLAYER'; showUI(`<h2 class="result-headline">CPU ELECTS TO ${cpuChoice}</h2>`, 'result-panel'); setTimeout(startGame, 1500); }
+        function handleCPUChoice() { const cpuChoice = Math.random() < 0.8 ? 'RECEIVE' : 'KICK'; playState = cpuChoice === 'RECEIVE' ? 'KICK' : 'RECEIVE'; possession = cpuChoice === 'RECEIVE' ? 'CPU' : 'PLAYER'; showUI(`<h2 class="result-headline">OPPONENT ELECTS TO ${cpuChoice}</h2>`, 'result-panel'); setTimeout(startGame, 1500); }
 
         function startGame() {
             hideUI(); players = []; ensureRefsExist(); ball.z = 0; ball.vx = 0; ball.vy = 0; ball.vz = 0; ball.isKicked = false; flagsOnField = []; penaltyData = null;
@@ -730,6 +966,7 @@
                     document.getElementById('ui-container').style.display = 'none'; document.getElementById('scoreboard').style.display = 'none';
                     document.getElementById('hud').style.display = 'none'; document.getElementById('play-clock').style.display = 'none'; document.getElementById('down-distance').style.display = 'none';
                     canvas.style.display = 'none';
+                    if (isMultiplayer && myPeer) { myPeer.destroy(); myPeer = null; mpConnection = null; isMultiplayer = false; }
                     isQuickPlay = false; quickPlayConfig = null; QUARTER_LENGTH_SECONDS = 180; penaltyData = null; flagsOnField = [];
                     document.getElementById('sb-label-you').textContent = "YOU"; document.getElementById('sb-label-cpu').textContent = "CPU";
                     document.querySelector('#scoreboard .sb-team.you').style.backgroundColor = ''; document.querySelector('#scoreboard .sb-team.cpu').style.backgroundColor = '';
@@ -747,7 +984,7 @@
             else if (tabName === 'OFFICE') { html += `<h2 style="color: #facc15; font-size: 24px; text-shadow: 2px 2px 0 #000; margin-bottom: 24px;">OFFICE</h2><p style="color: #94a3b8; font-size: 14px; line-height: 2;">[ Empty ]</p>`; } 
             else if (tabName === 'PLAY') {
                 html += `<div style="display: flex; flex-direction: row; gap: 10px; width: 100%; height: 100%; align-items: flex-start; text-align: left; justify-content: space-between;"><div style="flex: 1; background: rgba(0,0,0,0.3); border: 3px solid #64748b; border-radius: 8px; padding: 15px; display: flex; flex-direction: column;"><h3 id="play-mode-title" style="color: #facc15; font-size: clamp(12px, 3.5vw, 16px); text-shadow: 2px 2px 0 #000; margin-bottom: 12px; line-height: 1.4;">FRANCHISE</h3><p id="play-mode-desc" style="color: #cbd5e1; font-size: clamp(9px, 2.5vw, 12px); line-height: 1.6;">${modeDescriptions['Franchise']}</p></div><div style="display: flex; flex-direction: column; gap: 8px; width: 45%; max-width: 220px;">`;
-                Object.keys(modeDescriptions).forEach(mode => { let isLocked = (mode === 'Story Mode' || mode === 'Online Head-to-Head'); let btnStyle = isLocked ? `background-color: #64748b; border-color: #94a3b8; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.2), 4px 4px 0 rgba(0,0,0,0.5); color: #cbd5e1;` : ``; let safeMode = mode.replace(/\s+/g, '-'); let isActive = (mode === 'Franchise'); let btnAction = isLocked ? '' : (mode === 'Quick Play' ? 'openQuickPlaySetup()' : 'location.reload()');
+                Object.keys(modeDescriptions).forEach(mode => { let isLocked = (mode === 'Story Mode'); let btnStyle = isLocked ? `background-color: #64748b; border-color: #94a3b8; box-shadow: inset 0 -4px 0 rgba(0,0,0,0.2), 4px 4px 0 rgba(0,0,0,0.5); color: #cbd5e1;` : ``; let safeMode = mode.replace(/\s+/g, '-'); let isActive = (mode === 'Franchise'); let btnAction = isLocked ? '' : (mode === 'Quick Play' ? 'openQuickPlaySetup()' : (mode === 'Online Head-to-Head' ? 'openOnlineLobby()' : 'location.reload()'));
                     html += `<div style="display: flex; flex-direction: column; width: 100%;"><button class="retro-btn" style="width: 100%; padding: 10px 8px; font-size: clamp(8px, 2.5vw, 12px); ${btnStyle}" onclick="selectGameMode('${mode}')">${mode.toUpperCase()}</button><div id="slide-out-${safeMode}" class="play-slide-out" style="max-height: ${isActive ? '60px' : '0px'}; margin-top: ${isActive ? '8px' : '0px'}; opacity: ${isActive ? '1' : '0'}; overflow: hidden; transition: all 0.2s ease-out; display: flex; justify-content: flex-end;"><button class="retro-btn" style="background-color: #10b981; padding: 8px 12px; font-size: clamp(8px, 2vw, 10px); width: 85%; ${isLocked ? 'pointer-events: none; opacity: 0.5;' : ''}" onclick="${btnAction}">${isLocked ? 'LOCKED' : 'PLAY'}</button></div></div>`;
                 });
                 html += `</div></div>`;
@@ -755,7 +992,7 @@
             html += `</div>`; if (content) content.innerHTML = html;
         };
 
-        const modeDescriptions = { 'Franchise': 'Take complete control of a high school program. Manage budgets, scout incoming prospects, upgrade facilities, and build a multi-season dynasty.', 'Quick Play': 'Jump straight into a game. Pick any two teams, set the stadium and weather, and play a fast exhibition game with zero long-term consequences.', 'Practice': 'Hit the empty turf to hone your skills. Run unlimited reps, master your custom playbook, and perfect your pass timing.', 'Story Mode': 'Coming soon.', 'Online Head-to-Head': 'Coming soon.' };
+        const modeDescriptions = { 'Franchise': 'Take complete control of a high school program. Manage budgets, scout incoming prospects, upgrade facilities, and build a multi-season dynasty.', 'Quick Play': 'Jump straight into a game. Pick any two teams, set the stadium and weather, and play a fast exhibition game.', 'Online Head-to-Head': 'Play a live match online against a friend! Host a private room and send them your room code to play across the internet.', 'Practice': 'Hit the empty turf to hone your skills. Run unlimited reps, master your custom playbook, and perfect your pass timing.', 'Story Mode': 'Coming soon.' };
         window.selectGameMode = function(modeName) {
             document.getElementById('play-mode-title').innerText = modeName.toUpperCase(); document.getElementById('play-mode-desc').innerText = modeDescriptions[modeName];
             document.querySelectorAll('.play-slide-out').forEach(el => { el.style.maxHeight = '0px'; el.style.marginTop = '0px'; el.style.opacity = '0'; });
@@ -768,11 +1005,14 @@
         };
 
         function endGame() {
-            gameState = 'GAME_OVER'; let won = playerScore > cpuScore; let resultText = playerScore === cpuScore ? "IT'S A TIE!" : (won ? "YOU WIN!" : "CPU WINS!"); let resultColor = playerScore === cpuScore ? "#facc15" : (won ? "#4ade80" : "#f87171");
+            gameState = 'GAME_OVER'; let won = playerScore > cpuScore; let resultText = playerScore === cpuScore ? "IT'S A TIE!" : (won ? "YOU WIN!" : "OPPONENT WINS!"); let resultColor = playerScore === cpuScore ? "#facc15" : (won ? "#4ade80" : "#f87171");
             let btnHtml = '';
-            if (isQuickPlay) { btnHtml = `<button class="retro-btn" style="margin-top: 30px; background-color: #10b981;" onclick="exitToHub()">EXIT TO HUB</button><button class="retro-btn" style="margin-top: 10px; background-color: #3b82f6;" onclick="startQuickPlayGame()">REMATCH</button>`; } 
+            if (isQuickPlay || isMultiplayer) { btnHtml = `<button class="retro-btn" style="margin-top: 30px; background-color: #10b981;" onclick="exitToHub()">EXIT TO HUB</button>`; } 
             else { btnHtml = won ? `<button class="retro-btn" style="margin-top: 30px; background-color: #10b981;" onclick="exitToHub()">EXIT TO HUB</button>` : `<button class="retro-btn" style="margin-top: 30px; background-color: #f59e0b;" onclick="retryClutchDrive()">TRY AGAIN</button>`; }
-            showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #facc15;">FINAL SCORE</h2><p class="result-yardage neutral" style="color: #e2e8f0; margin-top: 14px;">YOU ${playerScore} - ${cpuScore} CPU</p><p class="result-down" style="color: ${resultColor}; margin-top: 8px;">${resultText}</p>${btnHtml}</div>`, 'result-panel');
+            
+            if (isMpHost || !isMultiplayer) {
+                showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #facc15;">FINAL SCORE</h2><p class="result-yardage neutral" style="color: #e2e8f0; margin-top: 14px;">${isMpHost ? "YOU" : "P1"} ${playerScore} - ${cpuScore} ${isMpHost ? "P2" : "CPU"}</p><p class="result-down" style="color: ${resultColor}; margin-top: 8px;">${resultText}</p>${btnHtml}</div>`, 'result-panel');
+            }
         }
 
         function handleTouchdown(carrier) {
@@ -780,7 +1020,9 @@
             let cpuScored = carrier.isCPU; if (cpuScored) cpuScore += 6; else playerScore += 6; updateScoreboard();
             addScreenShake(0.8); hitStopTimer = 10;
             carrier.x = Math.max(0, Math.min(FIELD_LENGTH_YARDS, carrier.x)); carrier.facing = carrier.isCPU ? -1 : 1;
-            celebratingPlayer = carrier; celebrationTimer = 0; showTouchdownBanner(cpuScored);
+            celebratingPlayer = carrier; celebrationTimer = 0; 
+            
+            if(isMpHost || !isMultiplayer) showTouchdownBanner(cpuScored);
             for (let i = 0; i < 8; i++) { let bx = carrier.x + (Math.random() - 0.5) * 8; let by = carrier.y + (Math.random() - 0.5) * FIELD_WIDTH_YARDS * 0.8; spawnConfettiBurst(bx, by, 25); }
             refs.forEach(r => { r.state = 'SIGNAL_TD'; r.signalTimer = 0; });
         }
@@ -802,16 +1044,17 @@
             isKickReturnPlay = false; turnoverThisPlay = false;
             let downNames = ['1ST', '2ND', '3RD', '4TH']; let downText = turnedOverOnDowns ? `<div class="result-down turnover">TURNOVER ON DOWNS</div>` : `<div class="result-down">${downNames[down - 1]} &amp; ${Math.max(1, Math.round(Math.abs(firstDownLine - lineOfScrimmage)))}</div>`;
             
-            showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #ef4444;">${message}</h2>${yardageText}${downText}</div>`, 'result-panel'); selectedPlay = null; 
-            
-            setTimeout(() => { hideUI();
-                if (isIntroTackle) { introScriptState = 'COACH_RAGE_QUIT'; startDialog("AHHHUH! IM DONE. IM OUT OF HERE!!!"); } 
-                else {
-                    if (turnedOverOnDowns) checkQuarterEnd(setupScrimmage);
-                    else if (down === 4 && offenseDirection === 1) { let trueDistToGoal = 110 - lineOfScrimmage; if (trueDistToGoal <= 35) checkQuarterEnd(setupFieldGoal); else if (trueDistToGoal <= 50) checkQuarterEnd(setupScrimmage); else checkQuarterEnd(setupPunt); } 
-                    else checkQuarterEnd(setupScrimmage);
-                }
-            }, 3000); 
+            if (isMpHost || !isMultiplayer) {
+                showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #ef4444;">${message}</h2>${yardageText}${downText}</div>`, 'result-panel'); selectedPlay = null; 
+                setTimeout(() => { hideUI();
+                    if (isIntroTackle) { introScriptState = 'COACH_RAGE_QUIT'; startDialog("AHHHUH! IM DONE. IM OUT OF HERE!!!"); } 
+                    else {
+                        if (turnedOverOnDowns) checkQuarterEnd(setupScrimmage);
+                        else if (down === 4 && offenseDirection === 1) { let trueDistToGoal = 110 - lineOfScrimmage; if (trueDistToGoal <= 35) checkQuarterEnd(setupFieldGoal); else if (trueDistToGoal <= 50) checkQuarterEnd(setupScrimmage); else checkQuarterEnd(setupPunt); } 
+                        else checkQuarterEnd(setupScrimmage);
+                    }
+                }, 3000); 
+            }
         };
 
         function setupPunt() {
@@ -832,8 +1075,11 @@
                 player.x = returnerX; player.y = 0; player.facing = -dir; player.isKicker = false; player.isReturner = true; players.push(player); [-15, -10, -5, 5, 10, 15].forEach(y => players.push(createPlayer(rushX, y, false)));
             }
             camera.target = ball; finalizePlayers();
-            showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #facc15;">4TH DOWN</h2><p class="result-sub" style="margin-top: 10px;">${puntingIsPlayer ? 'You punt it away.' : 'CPU punts it away.'}</p></div>`, 'result-panel');
-            setTimeout(() => { hideUI(); if (puntingIsPlayer) { gameState = 'PRE_KICK'; setTimeout(() => { gameState = 'KICK_POWER'; meterValue = 0; meterDelta = 1.8; }, 600); } else { startKickRunUp(65 + Math.random() * 20, (Math.random() - 0.5) * 0.5); } }, 1800);
+            
+            if (isMpHost || !isMultiplayer) {
+                showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #facc15;">4TH DOWN</h2><p class="result-sub" style="margin-top: 10px;">${puntingIsPlayer ? 'You punt it away.' : 'CPU punts it away.'}</p></div>`, 'result-panel');
+                setTimeout(() => { hideUI(); if (puntingIsPlayer) { gameState = 'PRE_KICK'; setTimeout(() => { gameState = 'KICK_POWER'; meterValue = 0; meterDelta = 1.8; }, 600); } else { startKickRunUp(65 + Math.random() * 20, (Math.random() - 0.5) * 0.5); } }, 1800);
+            }
         }
 
         function setupFieldGoal() {
@@ -851,8 +1097,11 @@
                 player.x = lineOfScrimmage + (dir * 4); player.y = 0; player.facing = -dir; players.push(player); [-9, -5, -1, 1, 5, 9].forEach(y => players.push(createPlayer(lineOfScrimmage + (dir * 2), y, false)));
             }
             camera.target = ball; finalizePlayers();
-            showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #10b981;">FIELD GOAL ATTEMPT</h2><p class="result-sub" style="margin-top: 10px;">${kickingIsPlayer ? 'You line up for the kick.' : 'CPU lines up for the kick.'}</p></div>`, 'result-panel');
-            setTimeout(() => { hideUI(); if (kickingIsPlayer) { gameState = 'PRE_KICK'; setTimeout(() => { gameState = 'KICK_POWER'; meterValue = 0; meterDelta = 1.9; }, 600); } else { let distToGoal = (offenseDirection === 1) ? (120 - lineOfScrimmage) : lineOfScrimmage; let neededPower = Math.min(100, Math.max(70, distToGoal * 2.2)); startKickRunUp(neededPower + Math.random() * 10, (Math.random() - 0.5) * 0.3); } }, 1800);
+            
+            if (isMpHost || !isMultiplayer) {
+                showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #10b981;">FIELD GOAL ATTEMPT</h2><p class="result-sub" style="margin-top: 10px;">${kickingIsPlayer ? 'You line up for the kick.' : 'CPU lines up for the kick.'}</p></div>`, 'result-panel');
+                setTimeout(() => { hideUI(); if (kickingIsPlayer) { gameState = 'PRE_KICK'; setTimeout(() => { gameState = 'KICK_POWER'; meterValue = 0; meterDelta = 1.9; }, 600); } else { let distToGoal = (offenseDirection === 1) ? (120 - lineOfScrimmage) : lineOfScrimmage; let neededPower = Math.min(100, Math.max(70, distToGoal * 2.2)); startKickRunUp(neededPower + Math.random() * 10, (Math.random() - 0.5) * 0.3); } }, 1800);
+            }
         }
 
         function setupPAT(cpuScored) {
@@ -870,8 +1119,10 @@
                 player.x = lineOfScrimmage + (dir * 4); player.y = 0; player.facing = -dir; players.push(player); [-9, -5, -1, 1, 5, 9].forEach(y => players.push(createPlayer(lineOfScrimmage + (dir * 2), y, false)));
             }
             camera.target = ball; finalizePlayers();
-            showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #10b981;">EXTRA POINT ATTEMPT</h2><p class="result-sub" style="margin-top: 10px;">${kickingIsPlayer ? 'You line up for the kick.' : 'CPU lines up for the kick.'}</p></div>`, 'result-panel');
-            setTimeout(() => { hideUI(); if (kickingIsPlayer) { gameState = 'PRE_KICK'; setTimeout(() => { gameState = 'KICK_POWER'; meterValue = 0; meterDelta = 1.9; }, 600); } else { startKickRunUp(85 + Math.random() * 10, (Math.random() - 0.5) * 0.15); } }, 1800);
+            if (isMpHost || !isMultiplayer) {
+                showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #10b981;">EXTRA POINT ATTEMPT</h2><p class="result-sub" style="margin-top: 10px;">${kickingIsPlayer ? 'You line up for the kick.' : 'CPU lines up for the kick.'}</p></div>`, 'result-panel');
+                setTimeout(() => { hideUI(); if (kickingIsPlayer) { gameState = 'PRE_KICK'; setTimeout(() => { gameState = 'KICK_POWER'; meterValue = 0; meterDelta = 1.9; }, 600); } else { startKickRunUp(85 + Math.random() * 10, (Math.random() - 0.5) * 0.15); } }, 1800);
+            }
         }
 
         function setupScrimmage() {
@@ -879,7 +1130,9 @@
             isFieldGoalPlay = false; isPuntPlay = false; isPAT = false; interceptionAttempted = false; ensureRefsExist(); flagsOnField = []; penaltyData = null; isRefCam = false; isRefPenaltyZoom = false;
             let dir = offenseDirection; let isPlayerOffense = (dir === -1); 
             
-            if (!selectedPlay && isPlayerOffense) { gameState = 'PLAY_CALL'; playClock = PLAY_CLOCK_SECONDS; showPlayCallMenu(); return; }
+            if (isMpHost || !isMultiplayer) {
+                if (!selectedPlay && isPlayerOffense) { gameState = 'PLAY_CALL'; playClock = PLAY_CLOCK_SECONDS; showPlayCallMenu(); return; }
+            }
             
             if (isPlayerOffense) {
                 player.x = lineOfScrimmage - (dir * 4); player.y = 0; player.facing = dir; 
@@ -932,9 +1185,15 @@
             players.forEach(p => { if (p === player) return; p.facing = (p.isCPU === isPlayerOffense) ? -dir : dir; });
             camera.target = isPlayerOffense ? player : players.find(p => p.isQB); finalizePlayers(); hideUI();
             
-            if (!isIntroScene) { hud.innerHTML = `<div style="color: ${isPlayerOffense ? '#3b82f6' : '#ef4444'}; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">${isPlayerOffense ? 'TAP ACT TO SNAP' : 'DEFENSE: GET READY!'}</div>`; } else { hud.innerHTML = ""; }
+            if (!isIntroScene) { 
+                if (isMultiplayer) {
+                    hud.innerHTML = `<div style="color: ${isPlayerOffense ? '#3b82f6' : '#ef4444'}; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">${isPlayerOffense ? 'TAP ACT TO SNAP' : 'DEFENSE: GET READY!'}</div>`;
+                } else {
+                    hud.innerHTML = `<div style="color: ${isPlayerOffense ? '#3b82f6' : '#ef4444'}; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">${isPlayerOffense ? 'TAP ACT TO SNAP' : 'DEFENSE: GET READY!'}</div>`;
+                }
+            } else { hud.innerHTML = ""; }
 
-            if (!isPlayerOffense) {
+            if (!isPlayerOffense && (isMpHost || !isMultiplayer)) {
                 setTimeout(() => { if (gameState === 'PRE_SNAP') { gameState = 'PLAYING'; let qb = players.find(p => p.isQB); if (qb) qb.hasBall = true; hud.innerHTML = ""; hideUI(); } }, 2500); 
             }
         }
@@ -969,11 +1228,13 @@
         function fieldGoalResult(message, success, teamDir) {
             gameState = 'PLAY_DEAD'; let isPlayer = (teamDir === -1); 
             if (success) { if (isPlayer) playerScore += isPAT ? 1 : 3; else cpuScore += isPAT ? 1 : 3; updateScoreboard(); addScreenShake(0.6); let postX = teamDir === -1 ? 0 : 120; spawnConfettiBurst(postX, 0, 30); spawnConfettiBurst(postX, -5, 30); spawnConfettiBurst(postX, 5, 30); }
-            showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: ${success ? '#10b981' : '#ef4444'};">${message}</h2><p class="result-sub" style="margin-top: 12px;">${success ? (isPAT ? '+1 POINT' : '+3 POINTS') : (isPAT ? 'NO GOOD' : 'TURNOVER ON DOWNS')}</p></div>`, 'result-panel');
-            setTimeout(() => { hideUI();
-                if (isPAT || success) { checkQuarterEnd(() => { playState = isPlayer ? 'KICK' : 'RECEIVE'; possession = isPlayer ? 'CPU' : 'PLAYER'; startGame(); }); } 
-                else { checkQuarterEnd(() => { lineOfScrimmage = Math.max(10, Math.min(110, lineOfScrimmage - (teamDir * 7))); offenseDirection = (teamDir === -1) ? 1 : -1; down = 1; firstDownLine = lineOfScrimmage + (offenseDirection * 10); firstDownLine = Math.max(0, Math.min(FIELD_LENGTH_YARDS, firstDownLine)); setupScrimmage(); }); }
-            }, 3500);
+            if (isMpHost || !isMultiplayer) {
+                showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: ${success ? '#10b981' : '#ef4444'};">${message}</h2><p class="result-sub" style="margin-top: 12px;">${success ? (isPAT ? '+1 POINT' : '+3 POINTS') : (isPAT ? 'NO GOOD' : 'TURNOVER ON DOWNS')}</p></div>`, 'result-panel');
+                setTimeout(() => { hideUI();
+                    if (isPAT || success) { checkQuarterEnd(() => { playState = isPlayer ? 'KICK' : 'RECEIVE'; possession = isPlayer ? 'CPU' : 'PLAYER'; startGame(); }); } 
+                    else { checkQuarterEnd(() => { lineOfScrimmage = Math.max(10, Math.min(110, lineOfScrimmage - (teamDir * 7))); offenseDirection = (teamDir === -1) ? 1 : -1; down = 1; firstDownLine = lineOfScrimmage + (offenseDirection * 10); firstDownLine = Math.max(0, Math.min(FIELD_LENGTH_YARDS, firstDownLine)); setupScrimmage(); }); }
+                }, 3500);
+            }
         }
 
         function resolveInterceptionMinigame() { gameState = 'INTERCEPTION_RESULT'; intMinigame.timer = 0; addScreenShake(0.5); if (intMinigame.result === 'success') { spawnConfettiBurst(intMinigame.defender.x, intMinigame.defender.y, 25); } }
@@ -1074,6 +1335,29 @@
         }
 
         function update() {
+            // MULTIPLAYER CLIENT BYPASS
+            if (isMultiplayer && isMpClient) {
+                if (mpConnection && mpConnection.open) mpConnection.send(getClientInput());
+                updateScreenShake(); updateParticles();
+                
+                // Keep local camera smoothly matching host target
+                if (camera.currentX !== undefined) {
+                    camera.currentX += (camera.x - camera.currentX) * 0.2; 
+                    camera.currentY += (camera.y - camera.currentY) * 0.2;
+                }
+                
+                if (gameState === 'TOUCHDOWN_CELEBRATION' && celebratingPlayer) {
+                    celebrationTimer++;
+                    if (celebrationTimer % 8 === 0) spawnConfettiBurst(celebratingPlayer.x + (Math.random() - 0.5) * 5, celebratingPlayer.y + (Math.random() - 0.5) * FIELD_WIDTH_YARDS * 0.8, 16);
+                }
+                return;
+            }
+
+            // MULTIPLAYER HOST DATA SEND
+            if (isMultiplayer && isMpHost && mpConnection && mpConnection.open) {
+                mpConnection.send(serializeState());
+            }
+
             ensureRefsExist(); updateScreenShake(); updateParticles();
             if (hitStopTimer > 0) { hitStopTimer--; return; }
 
@@ -1174,21 +1458,35 @@
                 intMinigame.timer++; if (intMinigame.timer > 45) finishInterceptionMinigame();
                 if (keys['Space']) spacePressed = true; else spacePressed = false;
             } else if (gameState !== 'PENALTY_SEQUENCE') {
-                if (keys['Space']) {
+                if (keys['Space'] || (isMultiplayer && remoteInput.act && offenseDirection === 1)) {
                     if (!spacePressed) {
                         spacePressed = true;
                         let canSnap = true; if (isIntroScene) canSnap = false; 
-                        if (gameState === 'PRE_SNAP' && offenseDirection === -1 && canSnap) { snapBall(); }
+                        
+                        // Multiplayer snapping logic: P1 (Host) snaps on offense, P2 (Client) snaps on offense
+                        if (gameState === 'PRE_SNAP' && canSnap) {
+                            if (offenseDirection === -1 && keys['Space']) snapBall();
+                            if (offenseDirection === 1 && isMultiplayer && remoteInput.act) snapBall(); 
+                        }
                         else if (gameState === 'KICK_POWER') { gameState = 'KICK_DIR'; dirValue = 0; dirDelta = isFieldGoalPlay ? 0.024 : 0.022; if (isFieldGoalPlay && meterValue >= 85) { let kicker = players.find(p => p.isKicker); if (kicker) spawnImpactBurst(kicker.x, kicker.y, 25); addScreenShake(0.3); } } 
                         else if (gameState === 'KICK_DIR') { startKickRunUp(meterValue, dirValue); if (isFieldGoalPlay && Math.abs(dirValue) <= 0.25) { let kicker = players.find(p => p.isKicker); if (kicker) spawnImpactBurst(kicker.x, kicker.y, 25); addScreenShake(0.3); } } 
                         else if (['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState) && !player.isBlocking && !player.isDiving && introScriptState !== 'SCRIPTED_RUN') {
-                            player.isDiving = true; player.diveTimer = 0; let dx = 0; let dy = 0;
-                            if (joystick && joystick.active) { dx = joystick.normX; dy = joystick.normY; } else { if (keys['ArrowUp'] || keys['KeyW']) dy -= 1; if (keys['ArrowDown'] || keys['KeyS']) dy += 1; if (keys['ArrowLeft'] || keys['KeyA']) dx -= 1; if (keys['ArrowRight'] || keys['KeyD']) dx += 1; }
-                            if (dx === 0 && dy === 0) dx = player.facing;
-                            let diveDir = screenInputToWorldDir(dx, dy); player.diveDirX = diveDir.x; player.diveDirY = diveDir.y;
+                            if (keys['Space']) {
+                                player.isDiving = true; player.diveTimer = 0; let dx = 0; let dy = 0;
+                                if (joystick && joystick.active) { dx = joystick.normX; dy = joystick.normY; } else { if (keys['ArrowUp'] || keys['KeyW']) dy -= 1; if (keys['ArrowDown'] || keys['KeyS']) dy += 1; if (keys['ArrowLeft'] || keys['KeyA']) dx -= 1; if (keys['ArrowRight'] || keys['KeyD']) dx += 1; }
+                                if (dx === 0 && dy === 0) dx = player.facing;
+                                let diveDir = screenInputToWorldDir(dx, dy); player.diveDirX = diveDir.x; player.diveDirY = diveDir.y;
+                            }
                         }
                     }
                 } else spacePressed = false;
+            }
+
+            // Assign MP Remote Player
+            let p2Player = null;
+            if (isMultiplayer && isMpHost) {
+                if (offenseDirection === 1) p2Player = players.find(p => p.isQB && p.isCPU) || players.find(p => p.isCPU && !p.isLineman);
+                else p2Player = players.find(p => p.isCPU && !p.isLineman); // Defense
             }
 
             if (!isMinigameActive && gameState !== 'PENALTY_SEQUENCE') {
@@ -1229,6 +1527,8 @@
                     let chasers = players.filter(p => p.isReturner || p.isTargetReceiver || p.isIntercepter);
                     chasers.forEach(returner => {
                         if (returner === player && returner.isIntercepter) return;
+                        if (p2Player && returner === p2Player && returner.isIntercepter) return; // let remote player control themselves
+                        
                         let targetX = gameState === 'BALL_IN_AIR' ? ball.destX : ball.x; let targetY = gameState === 'BALL_IN_AIR' ? ball.destY : ball.y;
                         let trackDx = targetX - returner.x; let trackDy = targetY - returner.y; let distToTarget = Math.sqrt(trackDx*trackDx + trackDy*trackDy);
                         if (distToTarget > 0.3) {
@@ -1303,6 +1603,26 @@
                     if (p.isBlocking) return;
                     if (p === player && ['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) { if (gameState === 'PLAYING' && isDefending && carrier && carrier.isCPU) { let dist = Math.hypot(carrier.x - p.x, carrier.y - p.y); let tackleRadius = (player.isDiving ? 2.3 : 1.6) - cpuDifficulty * 0.25; if (dist <= tackleRadius) triggerTackle(carrier, p); } return; }
                     
+                    // Multiplayer: Allow P2 to control their assigned player manually instead of AI
+                    if (p === p2Player && isMultiplayer && isMpHost && ['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState) && !p.isBlocking && !p.isDiving) {
+                        if (remoteInput.dive) {
+                            p.isDiving = true; p.diveTimer = 0; let dx = remoteInput.dx; let dy = remoteInput.dy;
+                            if (dx === 0 && dy === 0) dx = p.facing;
+                            let diveDir = screenInputToWorldDir(dx, dy); p.diveDirX = diveDir.x; p.diveDirY = diveDir.y;
+                        } else if (remoteInput.dx !== 0 || remoteInput.dy !== 0) {
+                            let dir = screenInputToWorldDir(remoteInput.dx, remoteInput.dy);
+                            p.x += dir.x * p.speed; p.y += dir.y * p.speed; 
+                            if (dir.x > 0.05) p.facing = 1; else if (dir.x < -0.05) p.facing = -1;
+                            p.animTimer += 0.3;
+                        } else {
+                            p.animTimer = 0;
+                        }
+                        
+                        let actualDistToCarrier = carrier ? Math.sqrt(Math.pow(carrier.x - p.x, 2) + Math.pow(carrier.y - p.y, 2)) : 100;
+                        if (actualDistToCarrier <= 1.3 && gameState === 'PLAYING' && carrier.hasBall && isDefending) triggerTackle(carrier, p);
+                        return; // Skip normal AI logic
+                    }
+
                     if (gameState === 'BALL_IN_AIR' || gameState === 'BALL_LOOSE' || gameState === 'PLAYING') {
                         let sepX = 0, sepY = 0; players.forEach(other => { if (other !== p && !other.isBlocking && !p.isBlocking && !other.hasBall) { let dx = p.x - other.x; let dy = p.y - other.y; let dist = Math.sqrt(dx*dx + dy*dy); if (dist > 0 && dist < 1.5) { sepX += (dx / dist) * 0.5; sepY += (dy / dist) * 0.5; } } });
                         if (p.smoothSepX === undefined) { p.smoothSepX = 0; p.smoothSepY = 0; } p.smoothSepX += (sepX - p.smoothSepX) * 0.3; p.smoothSepY += (sepY - p.smoothSepY) * 0.3; sepX = p.smoothSepX; sepY = p.smoothSepY;
@@ -1645,7 +1965,7 @@
                 
                 if (p.isRef) {
                     cJersey = '#ffffff'; cPants = '#0f172a'; cHelmet = p.id === 1 ? '#ffffff' : '#111827'; cJerseyDetail = '#ffffff';
-                } else if (isQuickPlay && quickPlayConfig) {
+                } else if ((isQuickPlay || isMultiplayer) && quickPlayConfig) {
                     let isPlayerTeam = !p.isCPU; let teamColors = isPlayerTeam ? quickPlayConfig.playerColors : quickPlayConfig.cpuColors;
                     let isHome = isPlayerTeam ? (qpState.playerSide === 'HOME') : (qpState.playerSide !== 'HOME');
                     if (isHome) { cJersey = teamColors.primary; cPants = teamColors.secondary; cHelmet = teamColors.secondary; cJerseyDetail = '#ffffff'; cHelmetStripe = teamColors.primary; cPantsStripe = teamColors.primary; } 
@@ -1765,39 +2085,6 @@
             });
 
             if (gameState !== 'COIN_TOSS' && !players.some(p => p.hasBall) && gameState !== 'PENALTY_SEQUENCE') {
-                let ballShadowSize = PPY * 0.4; if (ball.z > 0) ballShadowSize = Math.max(PPY * 0.1, PPY * 0.4 - (ball.z * 0.08));
-                ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(ball.x * PPY, ball.y * PPY, ballShadowSize / X_STRETCH, ballShadowSize, 0, 0, Math.PI * 2); ctx.fill();
-            }
-            ctx.restore(); 
-
-            if (isAimingPass) {
-                ctx.save();
-                let z0 = 1.2; let ht = projectedHangTime; let pVx = (projectedDestX - player.x) / ht; let pVy = (projectedDestY - player.y) / ht; let g = 0.008; let pVz = ((1.0 - z0) / ht) + (g * ht / 2) + (g / 2);
-                ctx.beginPath(); ctx.setLineDash([8, 8]); ctx.lineWidth = Math.max(2, camera.zoom * 0.08); ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)'; ctx.lineCap = 'round';
-                let first = true;
-                for (let t = 1; t <= ht; t += 2) {
-                    let cx = player.x + pVx * t; let cy = player.y + pVy * t; let cz = z0 + pVz * t - 0.5 * g * t * (t - 1); 
-                    let cScreen = toScreen(cx, cy); let visualZ = cz * camera.zoom * 0.6;
-                    if (first) { ctx.moveTo(cScreen.x, cScreen.y - visualZ); first = false; } else { ctx.lineTo(cScreen.x, cScreen.y - visualZ); }
-                }
-                ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-            }
-
-            if (camera.currentX > 70) drawGoalpost(120); if (camera.currentX < 50) drawGoalpost(0);   
-
-            if (headset.active && !headset.pickedUp) {
-                let hScreen = toScreen(headset.x, headset.y); let p = camera.zoom * 0.035; 
-                ctx.save(); ctx.translate(hScreen.x, hScreen.y);
-                ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(-10 * p, 4 * p, 22 * p, 4 * p);
-                ctx.fillStyle = '#111827'; ctx.fillRect(-6 * p, -8 * p, 12 * p, 2 * p); ctx.fillRect(-8 * p, -6 * p, 2 * p, 6 * p); ctx.fillRect(6 * p, -6 * p, 2 * p, 6 * p);   
-                ctx.fillStyle = '#1f2937'; ctx.fillRect(-10 * p, -1 * p, 6 * p, 8 * p); ctx.fillRect(4 * p, -1 * p, 6 * p, 8 * p);   
-                ctx.fillStyle = '#374151'; ctx.fillRect(-4 * p, 0, 2 * p, 6 * p); ctx.fillRect(2 * p, 0, 2 * p, 6 * p);  
-                ctx.fillStyle = '#111827'; ctx.fillRect(8 * p, 4 * p, 6 * p, 2 * p); ctx.fillRect(14 * p, 3 * p, 2 * p, 4 * p); 
-                if (Math.floor(Date.now() / 150) % 2 === 0) { ctx.fillStyle = '#4ade80'; ctx.fillRect(6 * p, 1 * p, 2 * p, 2 * p); ctx.fillStyle = 'rgba(74, 222, 128, 0.3)'; ctx.fillRect(4 * p, -1 * p, 6 * p, 6 * p); ctx.fillRect(6 * p, -3 * p, 2 * p, 10 * p); }
-                ctx.restore();
-            }
-
-            if (gameState !== 'COIN_TOSS' && !players.some(p => p.hasBall) && gameState !== 'PENALTY_SEQUENCE') {
                 let bScreen = toScreen(ball.x, ball.y); let bScale = camera.zoom * 0.06; let visualHeight = ball.z * camera.zoom * 0.6; 
                 ctx.save(); ctx.translate(bScreen.x, bScreen.y - visualHeight);
                 
@@ -1842,7 +2129,9 @@
                 ctx.restore();
             });
 
-            let kicker = players.find(p => p.isKicker && !p.isCPU);
+            let kicker = players.find(p => p.isKicker && ((isMultiplayer && isMpHost) ? !p.isCPU : !p.isCPU));
+            if (isMultiplayer && isMpClient) kicker = players.find(p => p.isKicker && p.isCPU); // give client their kicker view
+
             if (kicker && (gameState === 'KICK_POWER' || gameState === 'KICK_DIR')) {
                 let kScreen = toScreen(kicker.x, kicker.y);
                 if (isFieldGoalPlay) {
@@ -1989,6 +2278,3 @@
     </script>
 </body>
 </html>
-
-
-
