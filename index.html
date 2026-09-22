@@ -1,31 +1,3 @@
-This is a significant feature addition. Making the referees both visually
-distinctive and mechanically alive (while setting up a modular penalty system
-for the future) takes some solid logic.
-
-Here are the massive improvements made in this version:
-
-1.  Visually Distinct Referees: The drawing logic for referees has been
-    isolated. They now explicitly have no helmet (fully drawn faces/heads with
-    baseball-style ref caps: White for the Head Umpire, Black for the Field
-    Judge), pure vertical black & white stripes explicitly drawn line-by-line
-    across their chests and arms, thin builds without shoulder pads, tucked-in
-    yellow flags at the waist, and a silver whistle around the neck. They stand
-    out perfectly against the teams now.
-2.  Smooth, Physics-Based Penalty Flags: The referees are equipped with flags!
-    When a penalty triggers, the closest ref dramatically throws a weighted
-    yellow pixel flag that naturally arcs through the air, flutters, and lands
-    accurately on the turf.
-3.  The Penalty Spotlight Engine: Once a flag lands, all play officially halts.
-    The camera fully isolates onto the throwing referee. The referee
-    aggressively jogs directly onto the hash marks. He squares up, keys his
-    "microphone" (hands shift to his collar/belt), and delivers his dialogue
-    sequence before assessing the yards and properly setting up the replay of
-    the down.
-4.  Dialogue Hook Engine: The dialog box code was rebuilt to accept completion
-    hooks (onComplete), seamlessly transitioning states back into gameplay.
-
-Here is your updated complete file with the new Referee and Penalty Flag Systems
-built in!
 
 <!DOCTYPE html>
 <html lang="en">
