@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -306,7 +307,7 @@
 
             if (gameState === 'PAUSED') {
                 resumeGame();
-            } else if (['PRE_SNAP', 'PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE', 'KICK_POWER', 'KICK_DIR'].includes(gameState) || (isIntroScene && introScriptState === 'SCRIPTED_RUN')) {
+            } else if (['PRE_SNAP', 'PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE', 'KICK_POWER', 'KICK_DIR'].includes(gameState) || isIntroScene) {
                 prePauseState = gameState;
                 gameState = 'PAUSED';
                 showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #facc15;">PAUSED</h2>
@@ -519,7 +520,7 @@
                         startGame();
                     } else if (data.type === 'play_selected') {
                         cpuSelectedPlay = data.playName;
-                        // For defense, we'll just pick a base defense since defense doesn't pick plays yet.
+                        // Client picked a play, proceed to snap
                         setupScrimmage();
                     } else if (data.type === 'kick_action') {
                         // Client ran their meter locally and sent the lock to the host
@@ -572,7 +573,7 @@
                 return (mpCoinWinner === 'HOST') ? 'COIN_TOSS_WAIT_CHOICE' : 'COIN_TOSS_CLIENT_CHOICE';
             }
             if (gameState === 'PLAY_CALL') {
-                return (offenseDirection === -1) ? 'WAIT_PLAY_CALL' : 'MAKE_PLAY_CALL';
+                return (offenseDirection === 1) ? 'MAKE_PLAY_CALL' : 'WAIT_PLAY_CALL';
             }
             if (gameState === 'KICK_POWER' || gameState === 'KICK_DIR') {
                 let clientKicking = (isFieldGoalPlay || isPAT || isPuntPlay) ? (offenseDirection === 1) : (playState === 'RECEIVE');
@@ -596,7 +597,8 @@
                     x: p.x, y: p.y, f: p.facing, a: p.animTimer, isD: p.isDiving, isT: p.isTackling, 
                     isL: p.isLunging, isM: p.isMissedTackle, hb: p.hasBall, isB: p.isBlocking,
                     isCPU: p.isCPU, isK: p.isKicker, isLnm: p.isLineman, isQB: p.isQB, isRet: p.isReturner,
-                    sT: p.skinTone, g: p.girth, tr: p.isTargetReceiver, int: p.isIntercepter, hO: p.hopOffset
+                    sT: p.skinTone, g: p.girth, tr: p.isTargetReceiver, int: p.isIntercepter, hO: p.hopOffset,
+                    tA: p.tackleAnimTimer, lT: p.lungeTimer, mT: p.missedTackleTimer, dT: p.diveTimer
                 })),
                 refs: refs.map(r => ({ x: r.x, y: r.y, f: r.facing, a: r.animTimer, s: r.state, hF: r.hasFlag, id: r.id }))
             };
@@ -642,7 +644,7 @@
             
             // Kicking
             else if (uiState === 'CLIENT_KICKING') {
-                if (gameState !== 'KICK_POWER' && gameState !== 'KICK_DIR') {
+                if (gameState !== 'KICK_POWER' && gameState !== 'KICK_DIR' && gameState !== 'WAIT_KICK_CONFIRM') {
                     // Force the local state so the client handles the meter visually
                     gameState = 'KICK_POWER';
                     meterValue = 0;
@@ -683,14 +685,14 @@
 
             // Sync Core State
             // (If client is actively kicking, don't overwrite the game state from host)
-            if (!(data.ui === 'CLIENT_KICKING' && (gameState === 'KICK_POWER' || gameState === 'KICK_DIR'))) {
+            if (!(data.ui === 'CLIENT_KICKING' && (gameState === 'KICK_POWER' || gameState === 'KICK_DIR' || gameState === 'WAIT_KICK_CONFIRM'))) {
                 gameState = data.gs;
             }
             playState = data.ps; lineOfScrimmage = data.loc; firstDownLine = data.fd; offenseDirection = data.od;
             down = data.dwn; quarter = data.qtr; gameClock = data.clk; playClock = data.pclk;
             playerScore = data.scY; cpuScore = data.scC;
             
-            ball.x = data.b.x; ball.y = data.b.y; ball.z = data.b.z; ball.spinAngle = data.b.sa; ball.isDeadPass = data.b.dP;
+            ball.tX = data.b.x; ball.tY = data.b.y; ball.tZ = data.b.z; ball.spinAngle = data.b.sa; ball.isDeadPass = data.b.dP;
             
             // Sync UI locally using state flag
             syncUI(data.ui);
@@ -705,16 +707,21 @@
                 });
             }
             for(let i=0; i<players.length; i++) {
-                players[i].x = data.pls[i].x; players[i].y = data.pls[i].y; players[i].facing = data.pls[i].f;
+                // Smooth Lerp targets for network jitter
+                players[i].tX = data.pls[i].x; players[i].tY = data.pls[i].y; 
+                players[i].facing = data.pls[i].f;
                 players[i].animTimer = data.pls[i].a; players[i].isDiving = data.pls[i].isD; players[i].isTackling = data.pls[i].isT;
                 players[i].isLunging = data.pls[i].isL; players[i].isMissedTackle = data.pls[i].isM; players[i].hasBall = data.pls[i].hb;
                 players[i].isBlocking = data.pls[i].isB; players[i].isTargetReceiver = data.pls[i].tr; players[i].isIntercepter = data.pls[i].int;
                 players[i].hopOffset = data.pls[i].hO;
+                
+                players[i].tackleAnimTimer = data.pls[i].tA; players[i].lungeTimer = data.pls[i].lT;
+                players[i].missedTackleTimer = data.pls[i].mT; players[i].diveTimer = data.pls[i].dT;
             }
 
             if (refs.length !== data.refs.length) refs = data.refs.map(dr => createRef(dr.x, dr.y, dr.id));
             for(let i=0; i<refs.length; i++) {
-                refs[i].x = data.refs[i].x; refs[i].y = data.refs[i].y; refs[i].facing = data.refs[i].f;
+                refs[i].tX = data.refs[i].x; refs[i].tY = data.refs[i].y; refs[i].facing = data.refs[i].f;
                 refs[i].animTimer = data.refs[i].a; refs[i].state = data.refs[i].s; refs[i].hasFlag = data.refs[i].hF;
             }
 
@@ -782,7 +789,6 @@
                 else if (dirValue <= -1) { dirValue = -1; dirDelta = Math.abs(dirDelta); } 
             }
         }
-
 
         window.startQuickPlayGame = function() {
             document.getElementById('quick-play-screen').style.display = 'none';
@@ -865,7 +871,7 @@
 
         let onDialogComplete = null;
 
-        window.addEventListener('pointerdown', (e) => { if (isIntroScene && introScriptState === 'HEADSET_PROMPT') { if (e.target.closest('#mobile-controls') || e.target.closest('.retro-btn')) return; headset.pickedUp = true; introScriptState = 'QB_ASK_PLAY'; hud.innerHTML = ""; startDialog("*QB jogs over* \"Coach what play should we run... we have 1 minute left...\"", "QB"); } });
+        window.addEventListener('pointerdown', (e) => { if (isIntroScene && introScriptState === 'HEADSET_PROMPT') { if (e.target.closest('#mobile-controls') || e.target.closest('.retro-btn') || e.target.closest('#btn-pause')) return; headset.pickedUp = true; introScriptState = 'QB_ASK_PLAY'; hud.innerHTML = ""; startDialog("*QB jogs over* \"Coach what play should we run... we have 1 minute left...\"", "QB"); } });
 
         function startDialog(text, speaker = 'COACH', onComplete = null) {
             previousGameState = gameState; gameState = 'DIALOG'; document.getElementById('dialog-box').style.display = 'flex';
@@ -1032,6 +1038,7 @@
             let downNames = ['1ST', '2ND', '3RD', '4TH']; let downText = turnedOverOnDowns ? `<div class="result-down turnover">TURNOVER ON DOWNS</div>` : `<div class="result-down">${downNames[down - 1]} &amp; ${Math.max(1, Math.round(Math.abs(firstDownLine - lineOfScrimmage)))}</div>`;
             
             if (isMpHost || !isMultiplayer) {
+                cpuSelectedPlay = null; // Clear so host properly routes to play call if needed
                 showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #f87171;">${message || 'INCOMPLETE PASS'}</h2><div class="result-yardage neutral">No gain.</div>${downText}</div>`, 'result-panel'); selectedPlay = null;
                 setTimeout(() => { hideUI();
                     if (turnedOverOnDowns) { checkQuarterEnd(setupScrimmage); } 
@@ -1073,7 +1080,12 @@
                 if (gameState === 'PRE_KICK' || gameState === 'KICKER_RUN_UP') {
                     p2Player = (playState === 'KICK') ? players.find(p => p.isCPU && p.isReturner) : players.find(p => p.isCPU && p.isKicker);
                 } else if (gameState === 'PRE_SNAP') {
-                    p2Player = (offenseDirection === 1) ? players.find(p => p.isCPU && p.isQB) : players.find(p => p.isCPU && !p.isLineman && !p.isQB);
+                    // Make sure P2 gets MLB (ZONE or BLITZ) or an open DB.
+                    if (offenseDirection === 1) {
+                        p2Player = players.find(p => p.isCPU && p.isQB);
+                    } else {
+                        p2Player = players.find(p => p.isCPU && (p.aiRole === 'ZONE' || p.aiRole === 'BLITZ')) || players.find(p => p.isCPU && !p.isLineman);
+                    }
                 } else if (gameState === 'PLAY_CALL') {
                     p2Player = null;
                 }
@@ -1099,7 +1111,7 @@
 
         function startIntroSequence() {
             isIntroScene = true; introScriptState = 'WAITING_FOR_DIALOG'; introTimer = 0; playerScore = 26; cpuScore = 32; quarter = 4; gameClock = 60; mainClockStarted = false; updateScoreboard();
-            lineOfScrimmage = 80; offenseDirection = -1; down = 1; firstDownLine = 70; possession = 'PLAYER'; selectedPlay = 'DOUBLE_SLANT'; setupScrimmage(); document.getElementById('skip-intro-btn').style.display = 'block';
+            lineOfScrimmage = 80; offenseDirection = -1; down = 1; firstDownLine = 70; possession = 'PLAYER'; selectedPlay = 'DOUBLE_SLANT'; setupScrimmage(); document.getElementById('skip-intro-btn').style.display = 'block'; document.getElementById('btn-pause').style.display = 'block';
             introTimeouts.push(setTimeout(() => {
                 const overlay = document.getElementById('intro-overlay'); if(overlay) overlay.style.opacity = '0';
                 introTimeouts.push(setTimeout(() => { if(overlay) overlay.style.display = 'none'; }, 1000)); 
@@ -1272,6 +1284,7 @@
             let downNames = ['1ST', '2ND', '3RD', '4TH']; let downText = turnedOverOnDowns ? `<div class="result-down turnover">TURNOVER ON DOWNS</div>` : `<div class="result-down">${downNames[down - 1]} &amp; ${Math.max(1, Math.round(Math.abs(firstDownLine - lineOfScrimmage)))}</div>`;
             
             if (isMpHost || !isMultiplayer) {
+                cpuSelectedPlay = null; // Clear so host properly routes to play call if needed
                 showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: #ef4444;">${message}</h2>${yardageText}${downText}</div>`, 'result-panel'); selectedPlay = null; 
                 setTimeout(() => { hideUI();
                     if (isIntroTackle) { introScriptState = 'COACH_RAGE_QUIT'; startDialog("AHHHUH! IM DONE. IM OUT OF HERE!!!"); } 
@@ -1380,6 +1393,7 @@
             
             if (isMpHost || !isMultiplayer) {
                 if (!selectedPlay && isPlayerOffense) { gameState = 'PLAY_CALL'; playClock = PLAY_CLOCK_SECONDS; showPlayCallMenu(); return; }
+                if (isMultiplayer && !cpuSelectedPlay && !isPlayerOffense) { gameState = 'PLAY_CALL'; playClock = PLAY_CLOCK_SECONDS; return; } // Host waits for client play call
             }
             
             if (isPlayerOffense) {
@@ -1442,10 +1456,7 @@
             } else { hud.innerHTML = ""; }
 
             if (!isPlayerOffense && (isMpHost || !isMultiplayer)) {
-                if (isMultiplayer) {
-                    gameState = 'PLAY_CALL'; playClock = PLAY_CLOCK_SECONDS; 
-                    // Host sets to play call so client can pick
-                } else {
+                if (!isMultiplayer) {
                     setTimeout(() => { if (gameState === 'PRE_SNAP' && !isMultiplayer) { gameState = 'PLAYING'; let qb = players.find(p => p.isQB); if (qb) qb.hasBall = true; hud.innerHTML = ""; hideUI(); } }, 2500); 
                 }
             }
@@ -1486,6 +1497,7 @@
             gameState = 'PLAY_DEAD'; let isPlayer = (teamDir === -1); 
             if (success) { if (isPlayer) playerScore += isPAT ? 1 : 3; else cpuScore += isPAT ? 1 : 3; updateScoreboard(); addScreenShake(0.6); let postX = teamDir === -1 ? 0 : 120; spawnConfettiBurst(postX, 0, 30); spawnConfettiBurst(postX, -5, 30); spawnConfettiBurst(postX, 5, 30); }
             if (isMpHost || !isMultiplayer) {
+                cpuSelectedPlay = null;
                 showUI(`<div style="text-align: center;"><h2 class="result-headline" style="color: ${success ? '#10b981' : '#ef4444'};">${message}</h2><p class="result-sub" style="margin-top: 12px;">${success ? (isPAT ? '+1 POINT' : '+3 POINTS') : (isPAT ? 'NO GOOD' : 'TURNOVER ON DOWNS')}</p></div>`, 'result-panel');
                 setTimeout(() => { hideUI();
                     if (isPAT || success) { checkQuarterEnd(() => { playState = isPlayer ? 'KICK' : 'RECEIVE'; possession = isPlayer ? 'CPU' : 'PLAYER'; startGame(); }); } 
@@ -1592,25 +1604,39 @@
                     }
                 }
 
+                // LERP SMOOTHING FOR CLIENT
+                players.forEach(p => {
+                    if (p.tX !== undefined) {
+                        let lx = p.tX - p.x; let ly = p.tY - p.y;
+                        p.x += lx * 0.4; p.y += ly * 0.4;
+                        if (Math.abs(lx) > 0.05 || Math.abs(ly) > 0.05) p.animTimer += 0.3;
+                    }
+                });
+                if (ball.tX !== undefined) {
+                    ball.x += (ball.tX - ball.x) * 0.4;
+                    ball.y += (ball.tY - ball.y) * 0.4;
+                    ball.z += (ball.tZ - ball.z) * 0.4;
+                }
+
                 // Client Camera Independence
-                if (player) {
+                if (player || ball) {
                     let carrier = players.find(p => p.hasBall) || (['BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState) ? ball : null);
                     let ct = player;
                     if (gameState === 'PLAYING' && carrier) ct = carrier;
                     else if (['BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) ct = ball;
                     else if (gameState === 'TOUCHDOWN_CELEBRATION' && celebratingPlayer) ct = celebratingPlayer;
-                    else if (isAimingPass) {
+                    else if (isAimingPass && player) {
                         let spreadX = projectedDestX - player.x; let spreadY = projectedDestY - player.y;
                         ct = { x: player.x + spreadX * 0.4, y: player.y + spreadY * 0.4 };
                     }
                     camera.target = ct;
                 }
 
-                if (camera.currentX !== undefined) {
+                if (camera.currentX !== undefined && camera.target) {
                     camera.currentX += (camera.target.x - camera.currentX) * 0.2; 
                     camera.currentY += (camera.target.y - camera.currentY) * 0.2;
                     let targetZoom = camera.baseZoom;
-                    if (isAimingPass) {
+                    if (isAimingPass && player) {
                         let spread = Math.sqrt(Math.pow(projectedDestX - player.x, 2) + Math.pow(projectedDestY - player.y, 2));
                         targetZoom = Math.max(camera.baseZoom * 0.50, Math.min(camera.baseZoom, camera.baseZoom / (1 + spread * 0.015)));
                     } else if (gameState === 'TOUCHDOWN_CELEBRATION') {
@@ -1943,17 +1969,16 @@
                                             if (ball.isBadPass) { let missDist = 6 + Math.random() * 8; let missAngle = Math.random() * Math.PI * 2; leadX += Math.cos(missAngle) * missDist; leadY += Math.sin(missAngle) * missDist; }
                                             ball.destX = leadX; ball.destY = Math.max(-(FIELD_WIDTH_YARDS/2) - 3, Math.min((FIELD_WIDTH_YARDS/2) + 3, leadY));
                                             let actualDist = Math.sqrt(Math.pow(ball.destX - p.x, 2) + Math.pow(ball.destY - p.y, 2)); hangTime = Math.max(35, actualDist * 2.5);
-                                            ball.vx = (ball.destX - p.x) / hangTime; ball.vy = (ball.destY - p.y) / hangTime; let z0 = 1.2; let g = 0.008; ball.vz = ((1.0 - z0) / hangTime)+ (g * hangTime / 2) + (g / 2); ball.z = z0; ball.x = p.x; ball.y = p.y; ball.spinAngle = 0; isPassing = true; gameState = 'BALL_IN_AIR'; camera.target = ball;
-                                                players.forEach(pl => { pl.isTargetReceiver = false; pl.isIntercepter = false; }); targetWR.isTargetReceiver = true;
-                                                let COVERAGE_RADIUS = ball.isBadPass ? 4.5 : 2.6; players.filter(pl => pl.isCPU !== p.isCPU && !pl.isLineman && !pl.isQB).forEach(def => { if (Math.sqrt(Math.pow(def.x - ball.destX, 2) + Math.pow(def.y - ball.destY, 2)) < COVERAGE_RADIUS) def.isIntercepter = true; });
-                                            } else p.x += cpuRunSpeed * p.facing; 
-                                        }
-                                    } else {
-                                        let distFromLOS = Math.abs(p.x - lineOfScrimmage);
-                                        if (currentOffensePlay === 'SWEEP_RIGHT') { if (distFromLOS < 2) { p.y += cpuRunSpeed * 0.85; p.x += cpuRunSpeed * 0.3 * p.facing; } else { p.x += cpuRunSpeed * p.facing; p.y += sepY * 0.35; } } 
-                                        else if (currentOffensePlay === 'SWEEP_LEFT') { if (distFromLOS < 2) { p.y -= cpuRunSpeed * 0.85; p.x += cpuRunSpeed * 0.3 * p.facing; } else { p.x += cpuRunSpeed * p.facing; p.y += sepY * 0.35; } } 
-                                        else { p.x += cpuRunSpeed * p.facing; p.y += sepY * 0.35; } p.animTimer += 0.25;
+                                            ball.vx = (ball.destX - p.x) / hangTime; ball.vy = (ball.destY - p.y) / hangTime; let z0 = 1.2; let g = 0.008; ball.vz = ((1.0 - z0) / hangTime) + (g * hangTime / 2) + (g / 2); ball.z = z0; ball.x = p.x; ball.y = p.y; ball.spinAngle = 0; isPassing = true; gameState = 'BALL_IN_AIR'; camera.target = ball;
+                                            players.forEach(pl => { pl.isTargetReceiver = false; pl.isIntercepter = false; }); targetWR.isTargetReceiver = true;
+                                            let COVERAGE_RADIUS = ball.isBadPass ? 4.5 : 2.6; players.filter(pl => pl.isCPU !== p.isCPU && !pl.isLineman && !pl.isQB).forEach(def => { if (Math.sqrt(Math.pow(def.x - ball.destX, 2) + Math.pow(def.y - ball.destY, 2)) < COVERAGE_RADIUS) def.isIntercepter = true; });
+                                        } else p.x += cpuRunSpeed * p.facing; 
                                     }
+                                } else {
+                                    let distFromLOS = Math.abs(p.x - lineOfScrimmage);
+                                    if (currentOffensePlay === 'SWEEP_RIGHT') { if (distFromLOS < 2) { p.y += cpuRunSpeed * 0.85; p.x += cpuRunSpeed * 0.3 * p.facing; } else { p.x += cpuRunSpeed * p.facing; p.y += sepY * 0.35; } } 
+                                    else if (currentOffensePlay === 'SWEEP_LEFT') { if (distFromLOS < 2) { p.y -= cpuRunSpeed * 0.85; p.x += cpuRunSpeed * 0.3 * p.facing; } else { p.x += cpuRunSpeed * p.facing; p.y += sepY * 0.35; } } 
+                                    else { p.x += cpuRunSpeed * p.facing; p.y += sepY * 0.35; } p.animTimer += 0.25;
                                 }
                             }
                         }
@@ -1967,7 +1992,7 @@
                             if (player.x <= 81) { let cpuDef = players.find(p => p.isCPU && p.isLineman); if (cpuDef) triggerTackle(player, cpuDef); introScriptState = 'SCRIPTED_TACKLE'; }
                         } else if (player.isDiving) {
                             player.diveTimer++;
-                            if (player.diveTimer < 20) { let diveSpd = 0.25 * (1 - player.diveTimer/20); player.x += player.diveDirX * diveSpd; player.y += player.diveDirY * diveSpd; if (player.diveDirX !== 0) player.facing = player.diveDirX > 0 ? 1 : -1; } 
+                            if (player.diveTimer< 20) { let diveSpd = 0.25 * (1 - player.diveTimer/20); player.x += player.diveDirX * diveSpd; player.y += player.diveDirY * diveSpd; if (player.diveDirX !== 0) player.facing = player.diveDirX > 0 ? 1 : -1; } 
                             else if (player.diveTimer >= 20 && player.diveTimer < 45) { let slideSpd = 0.10 * (1 - (player.diveTimer - 20)/25); player.x += player.diveDirX * slideSpd; player.y += player.diveDirY * slideSpd; if(Math.random() < 0.4) spawnDust(player.x, player.y); } 
                             else if (player.diveTimer >= 60) { player.isDiving = false; player.diveTimer = 0; }
                         } else if (['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) {
@@ -2016,8 +2041,18 @@
                     let spreadX = projectedDestX - player.x; let spreadY = projectedDestY - player.y; let spread = Math.sqrt(spreadX * spreadX + spreadY * spreadY); camera.target = { x: player.x + spreadX * 0.4, y: player.y + spreadY * 0.4 };
                     let desiredZoom = Math.max(camera.baseZoom * 0.50, Math.min(camera.baseZoom, camera.baseZoom / (1 + spread * 0.015))); camera.zoom += (desiredZoom - camera.zoom) * 0.08;
                 } 
-                else if (gameState === 'PLAYING' && offenseDirection === 1 && !isPassing) { camera.target = player; if (Math.abs(camera.zoom - camera.baseZoom) > 0.01) camera.zoom += (camera.baseZoom - camera.zoom) * 0.08; } 
-                else { if (Math.abs(camera.zoom - camera.baseZoom) > 0.01) camera.zoom += (camera.baseZoom - camera.zoom) * 0.08; }
+                else { 
+                    if (Math.abs(camera.zoom - camera.baseZoom) > 0.01) camera.zoom += (camera.baseZoom - camera.zoom) * 0.08; 
+                    
+                    // General logic for where the camera goes. 
+                    let carrier = players.find(p => p.hasBall) || (['BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState) ? ball : null);
+                    let ct = player;
+                    
+                    if (gameState === 'PLAYING' && carrier) ct = carrier;
+                    else if (['BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) ct = ball;
+                    
+                    camera.target = ct;
+                }
 
                 if (camera.target) {
                     camera.x = camera.target.x; camera.y = camera.target.y; 
@@ -2134,13 +2169,12 @@
                     let isPlayerOffense = (offenseDirection === -1); 
                     let drawPlay = false;
 
-                    // If not multiplayer, draw player play. If multiplayer, draw the play if it's your turn on offense.
                     if (!isMultiplayer && isPlayerOffense) drawPlay = true;
                     if (isMultiplayer && isMpHost && isPlayerOffense) drawPlay = true;
                     if (isMultiplayer && isMpClient && !isPlayerOffense) drawPlay = true; 
 
                     let routeColor = isPlayerOffense ? '#ff003c' : '#00f0ff';
-                    if (isMultiplayer && isMpClient && !isPlayerOffense) routeColor = '#ff003c'; // For client, their offense is the "CPU" team from Host's perspective
+                    if (isMultiplayer && isMpClient && !isPlayerOffense) routeColor = '#ff003c'; 
 
                     if (drawPlay) {
                         if (currentTeamPlay === 'INSIDE_RUN') { let startX = (lineOfScrimmage + 4) * PPY; let endX = (lineOfScrimmage - 5) * PPY; let y = 0 * PPY; let arrowSizeX = (1.5 * PPY) / X_STRETCH; let arrowSizeY = 1.0 * PPY; drawPlayRoute(() => { ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.moveTo(endX + arrowSizeX, y - arrowSizeY); ctx.lineTo(endX, y); ctx.lineTo(endX + arrowSizeX, y + arrowSizeY); }, routeColor, PPY); } 
@@ -2267,10 +2301,7 @@
                     } else if ((isQuickPlay || isMultiplayer) && quickPlayConfig) {
                         let isPlayerTeam = !p.isCPU; 
                         
-                        // For Client, their team is internally the "CPU" array in the Host's logic
-                        if (isMultiplayer && isMpClient) {
-                            isPlayerTeam = p.isCPU; 
-                        }
+                        if (isMultiplayer && isMpClient) isPlayerTeam = p.isCPU; 
 
                         let teamColors = isPlayerTeam ? quickPlayConfig.playerColors : quickPlayConfig.cpuColors;
                         let isHome = isPlayerTeam ? (qpState.playerSide === 'HOME') : (qpState.playerSide !== 'HOME');
@@ -2587,4 +2618,3 @@
     </script>
 </body>
 </html>
-
