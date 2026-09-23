@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -299,10 +298,8 @@
             if (isMultiplayer && isMpClient) {
                 if (confirm("Quit Online Game and Return to Hub?")) {
                     exitToHub();
-                } else {
-                    if (mpConnection && mpConnection.open) mpConnection.send({ type: 'pause_request' });
                 }
-                return;
+                return; // Client ONLY exits, they cannot pause the host's logic
             }
 
             if (gameState === 'PAUSED') {
@@ -496,13 +493,14 @@
             
             // Hardcode matchup for MP
             qpState.homeIdx = 1; qpState.awayIdx = 0;
-            qpState.playerSide = isMpHost ? 'HOME' : 'AWAY'; // Host gets home, Client gets away
+            qpState.playerSide = isMpHost ? 'HOME' : 'AWAY'; 
 
-            // VERY IMPORTANT: Clear intro sequences immediately so they don't bleed into MP
+            // CLEAR ALL INTRO TIMERS IMMEDIATELY SO THEY DONT BLEED IN
             introTimeouts.forEach(clearTimeout);
             introTimeouts = [];
             isIntroScene = false;
             introScriptState = 'FINISHED';
+            introTimer = 0;
             if (dialogData && dialogData.interval) clearInterval(dialogData.interval);
             document.getElementById('dialog-box').style.display = 'none';
             document.getElementById('intro-overlay').style.display = 'none';
@@ -511,9 +509,7 @@
             // Hook up data channel
             mpConnection.on('data', (data) => {
                 if (isMpHost) {
-                    if (data.type === 'pause_request') {
-                        togglePause();
-                    } else if (data.type === 'coin_choice') {
+                    if (data.type === 'coin_choice') {
                         playState = data.choice === 'KICK' ? 'RECEIVE' : 'KICK'; 
                         possession = 'PLAYER';
                         startGame();
@@ -543,7 +539,7 @@
                 let cTeam = qpTeams[qpState.awayIdx];
                 
                 quickPlayConfig = { playerColors: { primary: pTeam.c1, secondary: pTeam.c2 }, cpuColors: { primary: cTeam.c1, secondary: cTeam.c2 }, quarterLength: 180 };
-                cpuDifficulty = 0; // Baseline for MP
+                cpuDifficulty = 0; 
                 
                 document.getElementById('sb-label-you').textContent = isMpHost ? "YOU" : "P1"; 
                 document.getElementById('sb-label-cpu').textContent = isMpHost ? "P2" : "YOU";
@@ -587,6 +583,7 @@
                 dwn: down, qtr: quarter, clk: gameClock, pclk: playClock,
                 scY: playerScore, scC: cpuScore,
                 b: { x: ball.x, y: ball.y, z: ball.z, vx: ball.vx, vy: ball.vy, vz: ball.vz, sa: ball.spinAngle, dP: ball.isDeadPass },
+                // EXACT CAMERA TARGET SYNC
                 c: { tx: camera.target ? camera.target.x : 60, ty: camera.target ? camera.target.y : 0, z: camera.zoom },
                 ui: determineMpUIState(),
                 tdShow: tdBanner.classList.contains('show'), tdM: tdBannerMain.textContent, tdS: tdBannerSub.textContent,
@@ -594,7 +591,7 @@
                 pls: players.map(p => ({
                     x: p.x, y: p.y, f: p.facing, a: p.animTimer, isD: p.isDiving, isT: p.isTackling, 
                     isL: p.isLunging, isM: p.isMissedTackle, hb: p.hasBall, isB: p.isBlocking,
-                    isCPU: p.isCPU, isK: p.isKicker, isLnm: p.isLineman, isQB: p.isQB, isRet: p.isReturner,
+                    isCPU: p.isCPU, isK: p.isKicker, isLnm: p.isLineman, isQB: p.isQB, isRet: p.isReturner, isMLB: p.isMLB,
                     sT: p.skinTone, g: p.girth, tr: p.isTargetReceiver, int: p.isIntercepter, hO: p.hopOffset,
                     dT: p.diveTimer, tT: p.tackleAnimTimer, tckT: p.tackleTimer, hdX: p.hitDirX, hdY: p.hitDirY
                 })),
@@ -604,9 +601,10 @@
 
         // Multiplayer UI Synchronization (Client only)
         function syncUI(uiState) {
-            // Only update if needed to prevent flickering
             if (uiState === 'NONE') {
-                if (uiContainer.style.display !== 'none' && !uiContainer.innerHTML.includes("PAUSED")) hideUI();
+                if (uiContainer.style.display !== 'none' && !uiContainer.innerHTML.includes("PAUSED")) {
+                    hideUI();
+                }
                 return;
             }
 
@@ -654,8 +652,6 @@
                     meterValue = 0;
                     meterDelta = 1.8;
                 }
-            } else if (uiState === 'HOST_KICKING') {
-                // Do nothing UI-wise, host is kicking
             }
         }
 
@@ -679,7 +675,7 @@
 
         // Multiplayer state deserialization (Client receives)
         function syncStateFromHost(data) {
-            if (gameState === 'PAUSED' && data.gs !== 'PAUSED') return; // Client requested pause overrides host temporarily
+            // Client handles host pausing
             if (data.gs === 'PAUSED') {
                 if (gameState !== 'PAUSED') {
                     prePauseState = gameState;
@@ -716,14 +712,13 @@
             if (players.length !== data.pls.length) {
                 players = data.pls.map(dp => {
                     let p = createPlayer(dp.x, dp.y, dp.isCPU, dp.isK);
-                    p.isLineman = dp.isLnm; p.isQB = dp.isQB; p.isReturner = dp.isRet;
+                    p.isLineman = dp.isLnm; p.isQB = dp.isQB; p.isReturner = dp.isRet; p.isMLB = dp.isMLB;
                     p.skinTone = dp.sT; p.girth = dp.g;
                     return p;
                 });
             }
             for(let i=0; i<players.length; i++) {
                 players[i].targetX = data.pls[i].x; players[i].targetY = data.pls[i].y; 
-                
                 players[i].facing = data.pls[i].f;
                 players[i].animTimer = data.pls[i].a; players[i].isDiving = data.pls[i].isD; players[i].isTackling = data.pls[i].isT;
                 players[i].isLunging = data.pls[i].isL; players[i].isMissedTackle = data.pls[i].isM; players[i].hasBall = data.pls[i].hb;
@@ -880,7 +875,7 @@
             playClockEl.classList.remove('show'); downDistanceEl.classList.remove('show');
         }
 
-        let player = { x: 60, y: 0, speed: 0.095, facing: 1, animTimer: 0, isCPU: false, isBlocking: false, blockTarget: null, blockTimer: 0, isDiving: false, diveTimer: 0, diveDirX: 0, diveDirY: 0, isLineman: false, isTackling: false, tackleAnimTimer: 0, isLunging: false, lungeTimer: 0, lungeDirX: 0, lungeDirY: 0, isMissedTackle: false, missedTackleTimer: 0, isIntercepter: false, skinTone: '#d4a373', girth: 1.0, speedModified: true, prevX: 60, prevY: 0 };
+        let player = { x: 60, y: 0, speed: 0.095, facing: 1, animTimer: 0, isCPU: false, isBlocking: false, blockTarget: null, blockTimer: 0, isDiving: false, diveTimer: 0, diveDirX: 0, diveDirY: 0, isLineman: false, isTackling: false, tackleAnimTimer: 0, isLunging: false, lungeTimer: 0, lungeDirX: 0, lungeDirY: 0, isMissedTackle: false, missedTackleTimer: 0, isIntercepter: false, skinTone: '#d4a373', girth: 1.0, speedModified: true, prevX: 60, prevY: 0, isMLB: false };
         const ball = { x: 60, y: 0, z: 0, vx: 0, vy: 0, vz: 0, prevX: 60, prevY: 0, prevZ: 0, isKicked: false, isBadPass: false, fgEvaluated: false };
 
         let screenShake = { trauma: 0, x: 0, y: 0 }; let hitStopTimer = 0; let particles = []; let hitMarkers = []; let stadiumFlashes = []; let headset = { x: 0, y: 0, active: false, pickedUp: false };
@@ -889,7 +884,7 @@
 
         let onDialogComplete = null;
 
-        window.addEventListener('pointerdown', (e) => { if (isIntroScene && introScriptState === 'HEADSET_PROMPT') { if (e.target.closest('#mobile-controls') || e.target.closest('.retro-btn')) return; headset.pickedUp = true; introScriptState = 'QB_ASK_PLAY'; hud.innerHTML = ""; startDialog("*QB jogs over* \"Coach what play should we run... we have 1 minute left...\"", "QB"); } });
+        window.addEventListener('pointerdown', (e) => { if (isIntroScene && introScriptState === 'HEADSET_PROMPT') { if (e.target.closest('#mobile-controls') || e.target.closest('.retro-btn') || e.target.closest('#btn-pause')) return; headset.pickedUp = true; introScriptState = 'QB_ASK_PLAY'; hud.innerHTML = ""; startDialog("*QB jogs over* \"Coach what play should we run... we have 1 minute left...\"", "QB"); } });
 
         function startDialog(text, speaker = 'COACH', onComplete = null) {
             previousGameState = gameState; gameState = 'DIALOG'; document.getElementById('dialog-box').style.display = 'flex';
@@ -1097,7 +1092,8 @@
                 if (gameState === 'PRE_KICK' || gameState === 'KICKER_RUN_UP') {
                     p2Player = players.find(p => p.isCPU && (playState === 'KICK' ? p.isReturner : p.isKicker));
                 } else if (gameState === 'PRE_SNAP' || gameState === 'PLAY_CALL' || gameState === 'PLAYING') {
-                    p2Player = players.find(p => p.isCPU && (offenseDirection === 1 ? p.isQB : p.isMLB));
+                    p2Player = (offenseDirection === 1) ? players.find(p => p.isCPU && p.isQB) || players.find(p => p.isCPU && !p.isLineman) 
+                                                        : players.find(p => p.isCPU && p.isMLB) || players.find(p => p.isCPU && !p.isLineman);
                 }
             }
         }
@@ -1625,16 +1621,16 @@
 
                 // INTERPOLATION (Butter-Smooth Movement)
                 if (ball.targetX !== undefined) {
-                    ball.x += (ball.targetX - ball.x) * 0.4;
-                    ball.y += (ball.targetY - ball.y) * 0.4;
-                    ball.z += (ball.targetZ - ball.z) * 0.4;
+                    ball.x += (ball.targetX - ball.x) * 0.8; // High interp for fast ball
+                    ball.y += (ball.targetY - ball.y) * 0.8;
+                    ball.z += (ball.targetZ - ball.z) * 0.8;
                 }
 
                 players.forEach(p => {
                     if (p.targetX !== undefined) {
                         let prevX = p.x; let prevY = p.y;
-                        p.x += (p.targetX - p.x) * 0.4;
-                        p.y += (p.targetY - p.y) * 0.4;
+                        p.x += (p.targetX - p.x) * 0.6;
+                        p.y += (p.targetY - p.y) * 0.6;
                         // Client calculates anim locally based on movement
                         let pSpeedSqr = (p.x - prevX)**2 + (p.y - prevY)**2;
                         if (pSpeedSqr > 0.001) p.animTimer += 0.3; else p.animTimer = 0;
@@ -1643,16 +1639,16 @@
 
                 refs.forEach(r => {
                     if (r.targetX !== undefined) {
-                        r.x += (r.targetX - r.x) * 0.4;
-                        r.y += (r.targetY - r.y) * 0.4;
+                        r.x += (r.targetX - r.x) * 0.6;
+                        r.y += (r.targetY - r.y) * 0.6;
                     }
                 });
 
                 // Client Camera Exact Sync
                 if (camera.targetX !== undefined) {
-                    camera.currentX += (camera.targetX - camera.currentX) * 0.2;
-                    camera.currentY += (camera.targetY - camera.currentY) * 0.2;
-                    camera.zoom += (camera.targetZ - camera.zoom) * 0.1;
+                    camera.currentX += (camera.targetX - camera.currentX) * 0.4;
+                    camera.currentY += (camera.targetY - camera.currentY) * 0.4;
+                    camera.zoom += (camera.targetZ - camera.zoom) * 0.2;
                 }
                 
                 updateScreenShake(); updateParticles();
