@@ -16,6 +16,7 @@
     <title>Pixel Game</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;700&display=swap" rel="stylesheet">
@@ -129,7 +130,7 @@
         .layer-fix { transform:translateZ(0); will-change:transform; isolation:isolate; }
         .notch::before, .notch::after {
             content:""; position:absolute; box-sizing:border-box;
-            border:2px solid var(--bc, #1E4FA3);
+            border:var(--bw,2px) solid var(--bc, #1E4FA3);
         }
         .notch::before {
             inset:0 var(--n,4px); background:var(--fill); background-origin:border-box;
@@ -140,6 +141,16 @@
             border-top-width:0; border-bottom-width:0;
             box-shadow:var(--shB, none);
         }
+
+        /* Play button: searching animation */
+        @keyframes play-sheen { 0% { transform: translateX(-130%) skewX(-20deg); } 100% { transform: translateX(330%) skewX(-20deg); } }
+        .play-sheen-band {
+            position: absolute; top: -10%; bottom: -10%; left: 0; width: 34%;
+            background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.6), rgba(255,255,255,0));
+            animation: play-sheen 1.3s linear infinite;
+        }
+        @keyframes play-dot { 0%, 15% { opacity: .25; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-5px); } 55%, 100% { opacity: .25; transform: translateY(0); } }
+        .play-dot { display: inline-block; width: 4px; height: 4px; background: #0B1330; animation: play-dot 1.2s steps(6) infinite; }
 
         /* Two-tone card background lives on its own layer (see note in fix) */
         .card-bg {
@@ -295,6 +306,30 @@
             mix-blend-mode: overlay;
             pointer-events: none;
         }
+
+        /* ===== Match screen ===== */
+        #match-screen { display: none; position: absolute; inset: 0; z-index: 40; flex-direction: column;
+            background: radial-gradient(ellipse at 50% 30%, #0B1938 0%, #050B1C 70%); }
+        #match-screen.open { display: flex; }
+        .mf-row { flex: 1 1 0; position: relative; min-height: 0; }
+        #vs-intro { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+            background: radial-gradient(ellipse at 50% 45%, #10285C 0%, #050B1C 75%); transition: opacity .55s ease; }
+        #vs-intro.done { opacity: 0; pointer-events: none; }
+        @keyframes vs-from-top { from { transform: translateY(-160%); opacity: 0; } to { transform: none; opacity: 1; } }
+        @keyframes vs-from-bot { from { transform: translateY(160%); opacity: 0; } to { transform: none; opacity: 1; } }
+        @keyframes vs-pop { 0% { transform: scale(.2); opacity: 0; } 65% { transform: scale(1.3); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes vs-title { 0% { transform: scale(.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        #vs-intro.run .vs-top { animation: vs-from-top .45s cubic-bezier(.2,.9,.3,1) both; }
+        #vs-intro.run .vs-bot { animation: vs-from-bot .45s cubic-bezier(.2,.9,.3,1) both; }
+        #vs-intro.run .vs-vs { animation: vs-pop .4s .35s cubic-bezier(.2,.9,.3,1) both; }
+        #vs-intro.run .vs-title { animation: vs-title .35s ease-out both; }
+        @keyframes conn-pulse { 50% { opacity: .3; } }
+        #match-left { display: none; position: absolute; inset: 0; z-index: 30; align-items: center; justify-content: center; background: rgba(3, 8, 22, .82); }
+        #match-left.open { display: flex; }
+        #toast { position: absolute; left: 50%; top: 150px; transform: translateX(-50%); z-index: 45; max-width: 86%; padding: 10px 14px;
+            background: #0E2249; border: 2px solid #1E4FA3; color: #FFC94A; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-align: center;
+            line-height: 1.35; opacity: 0; pointer-events: none; transition: opacity .25s; }
+        #toast.show { opacity: 1; }
     </style>
 </head>
 <body>
@@ -361,7 +396,7 @@
 
                     <!-- Name and Division -->
                     <div class="flex flex-col justify-center ml-2.5">
-                        <span class="text-white font-bold text-[17px] leading-tight tracking-wide pixel-text">Player</span>
+                        <span id="profile-name" class="text-white font-bold text-[17px] leading-tight tracking-wide pixel-text">Player</span>
                         <div class="flex items-center gap-1.5 mt-0.5">
                             <svg viewBox="0 0 10 12" class="w-3.5 h-4 pixel-art drop-shadow-md">
                                 <rect x="1" y="0" width="8" height="1" fill="#451A03"/>
@@ -376,7 +411,7 @@
                                 <rect x="4" y="2" width="4" height="1" fill="#FBBF24"/>
                                 <rect x="4" y="5" width="2" height="2" fill="#FEF3C7"/>
                             </svg>
-                            <span class="text-[#FFC94A] text-[11px] uppercase font-bold tracking-widest pixel-text-thin">Rookie I</span>
+                            <span id="profile-rank" class="text-[#FFC94A] text-[11px] uppercase font-bold tracking-widest pixel-text-thin">Rookie I</span>
                         </div>
                     </div>
                 </div>
@@ -414,7 +449,7 @@
                             <rect x="4" y="10" width="4" height="1" fill="#FDE68A"/>
                         </svg>
                     </div>
-                    <span class="text-[#FFC94A] text-[13px] font-bold tracking-wider pixel-text-thin">0</span>
+                    <span id="profile-trophies" class="text-[#FFC94A] text-[13px] font-bold tracking-wider pixel-text-thin">0</span>
                 </div>
 
                 <!-- Coins -->
@@ -594,6 +629,32 @@
             <div class="w-full p-2 pb-6 flex flex-col gap-2 z-30 relative layer-fix">
                 
                 <div class="absolute inset-0 bg-gradient-to-t from-[#010612] via-[rgba(3,17,46,0.9)] to-transparent -z-10 pointer-events-none pb-10"></div>
+
+                <!-- PLAY BUTTON -->
+                <button id="play-btn" class="layer-fix relative w-[260px] self-center h-[62px] flex items-center justify-center active:translate-y-[3px] transition-transform" style="-webkit-tap-highlight-color:transparent;">
+                    <span class="notch" style="--bc:#0B1330;--bw:3px;--n:4px;--fill:linear-gradient(180deg,#FFE28A 0,#FFE28A 3px,#F7C245 3px,#F7C245 calc(100% - 9px),#DE9420 calc(100% - 9px));--fillB:linear-gradient(180deg,#F7C245 0,#F7C245 calc(100% - 9px),#DE9420 calc(100% - 9px));"></span>
+                    <!-- shimmer sweep, only visible while searching -->
+                    <span id="play-sheen" class="absolute overflow-hidden pointer-events-none hidden" style="inset:4px;"><span class="play-sheen-band"></span></span>
+
+                    <!-- idle -->
+                    <span id="play-idle" class="relative flex items-center gap-4">
+                        <span class="text-[#0B1330] text-[34px] font-bold leading-none tracking-wider -mt-1">PLAY</span>
+                        <span class="w-[3px] h-9 bg-[#D08A1E] -mt-1"></span>
+                        <span class="text-[#0B1330] text-[13px] font-bold leading-[1.1] tracking-wide text-left -mt-1">1v1<br>RANKED</span>
+                        <svg viewBox="0 0 6 10" class="w-3 h-5 pixel-art -mt-1" shape-rendering="crispEdges">
+                            <rect x="0" y="0" width="2" height="2" fill="#0B1330"/><rect x="2" y="2" width="2" height="2" fill="#0B1330"/><rect x="4" y="4" width="2" height="2" fill="#0B1330"/><rect x="2" y="6" width="2" height="2" fill="#0B1330"/><rect x="0" y="8" width="2" height="2" fill="#0B1330"/>
+                        </svg>
+                    </span>
+
+                    <!-- searching -->
+                    <span id="play-search" class="relative hidden items-center gap-3">
+                        <span class="flex items-end text-[#0B1330] text-[21px] font-bold leading-none tracking-wide -mt-1">SEARCHING<span class="flex gap-[3px] ml-1 mb-[3px]"><i class="play-dot" style="animation-delay:0s"></i><i class="play-dot" style="animation-delay:.2s"></i><i class="play-dot" style="animation-delay:.4s"></i></span></span>
+                        <span class="w-[3px] h-9 bg-[#D08A1E] -mt-1"></span>
+                        <span class="text-[#0B1330] text-[13px] font-bold leading-[1.1] tracking-wide text-left -mt-1"><span id="play-timer">0:00</span><br><span class="text-[10px] opacity-70">CANCEL</span></span>
+                    </span>
+                </button>
+
+                <div id="online-line" class="hidden self-center -mt-1 -mb-1 text-[10px] font-bold tracking-widest uppercase text-[#B7F7C6] pixel-text-thin"><span style="color:#4ADE80">&#9679;</span> <span id="online-count">1</span> online</div>
 
                 <!-- 3 Navigation Cards Row -->
                 <div class="flex w-full gap-2 h-[100px]">
@@ -811,6 +872,132 @@
 
             </div>
         </div>
+
+        <!-- ================= MATCH SCREEN (shown on both devices when a match is found) ================= -->
+        <div id="match-screen">
+
+            <!-- HUD -->
+            <div class="relative flex items-stretch gap-2 px-2 pt-3 pb-1 h-[88px] shrink-0">
+                <div class="layer-fix relative flex-1 min-w-0 flex flex-col justify-center px-3">
+                    <span class="notch" style="--bc:#1E4FA3;--bw:2px;--n:4px;--fill:linear-gradient(180deg,#18408F,#0E2249);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                    <span class="text-[10px] font-bold tracking-widest text-[#5EEBFF] uppercase leading-none">You</span>
+                    <span id="hud-me-name" class="text-white text-[15px] font-bold leading-tight truncate">Player</span>
+                    <span class="flex items-center gap-1.5 mt-0.5"><svg viewBox="0 0 8 7" class="w-3 h-[10px] pixel-art" shape-rendering="crispEdges"><rect x="1" y="0" width="6" height="1" fill="#FFC94A"/><rect x="1" y="1" width="6" height="3" fill="#FFC94A"/><rect x="2" y="4" width="4" height="1" fill="#D9A21E"/><rect x="3" y="5" width="2" height="1" fill="#D9A21E"/><rect x="2" y="6" width="4" height="1" fill="#FFC94A"/></svg><span id="hud-me-rating" class="text-[#FFC94A] text-[13px] font-bold leading-none">0</span><span id="hud-me-rank" class="text-[#FFC94A]/70 text-[10px] font-bold uppercase tracking-wider leading-none truncate"></span></span>
+                </div>
+                <div class="relative w-[58px] shrink-0 flex flex-col items-center justify-center">
+                    <span class="text-white text-[26px] font-bold leading-none" style="text-shadow:0 2px 0 rgba(0,0,0,.6)">0-0</span>
+                    <span class="text-[#FFC94A] text-[10px] font-bold tracking-widest mt-1">VS</span>
+                </div>
+                <div class="layer-fix relative flex-1 min-w-0 flex flex-col justify-center items-end px-3">
+                    <span class="notch" style="--bc:#A32B2B;--bw:2px;--n:4px;--fill:linear-gradient(180deg,#8E2222,#4A0F0F);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                    <span class="text-[10px] font-bold tracking-widest text-[#FF9A9A] uppercase leading-none">Opponent</span>
+                    <span id="hud-opp-name" class="text-white text-[15px] font-bold leading-tight truncate max-w-full">Player</span>
+                    <span class="flex items-center gap-1.5 mt-0.5"><span id="hud-opp-rank" class="text-[#FFC94A]/70 text-[10px] font-bold uppercase tracking-wider leading-none truncate"></span><span id="hud-opp-rating" class="text-[#FFC94A] text-[13px] font-bold leading-none">0</span><svg viewBox="0 0 8 7" class="w-3 h-[10px] pixel-art" shape-rendering="crispEdges"><rect x="1" y="0" width="6" height="1" fill="#FFC94A"/><rect x="1" y="1" width="6" height="3" fill="#FFC94A"/><rect x="2" y="4" width="4" height="1" fill="#D9A21E"/><rect x="3" y="5" width="2" height="1" fill="#D9A21E"/><rect x="2" y="6" width="4" height="1" fill="#FFC94A"/></svg></span>
+                </div>
+            </div>
+
+            <!-- FIELD (full 120-yard field, you defend the bottom end zone) -->
+            <div class="relative flex-1 mx-2 my-1 min-h-0 overflow-hidden" style="border:3px solid rgba(255,255,255,.95);box-shadow:0 0 0 2px #050B1C;">
+                <div class="absolute inset-0 flex flex-col">
+                        <div class="mf-row" style="background:#B91C1C"><div class="grass-texture"></div><div id="mf-oppzone" class="absolute inset-0 flex items-center justify-center text-white/85 text-[20px] font-bold tracking-[0.35em] uppercase" style="text-shadow:0 2px 0 rgba(0,0,0,.35)">OPPONENT</div></div>
+                        <div class="mf-row" style="background:#16A34A"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#22C55E"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#16A34A"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#22C55E"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#16A34A"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#22C55E"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#16A34A"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#22C55E"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#16A34A"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#22C55E"><div class="grass-texture"></div></div>
+                        <div class="mf-row" style="background:#1D4ED8"><div class="grass-texture"></div><div id="mf-myzone" class="absolute inset-0 flex items-center justify-center text-white/85 text-[20px] font-bold tracking-[0.35em] uppercase" style="text-shadow:0 2px 0 rgba(0,0,0,.35)">YOU</div></div>
+                </div>
+                <div class="absolute inset-0 pointer-events-none">
+                        <div class="absolute left-0 right-0" style="top:calc(1/12*100% - 2.0px);height:4px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(2/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(3/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(4/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(5/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(6/12*100% - 2.0px);height:4px;background:#FCD34D"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(7/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(8/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(9/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(10/12*100% - 1.5px);height:3px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute left-0 right-0" style="top:calc(11/12*100% - 2.0px);height:4px;background:rgba(255,255,255,.92)"></div>
+                        <div class="absolute" style="top:8.3333%;bottom:8.3333%;left:38%;width:8px;background-image:linear-gradient(to bottom,rgba(255,255,255,.9) 0,rgba(255,255,255,.9) 35%,transparent 35%);background-size:100% 1%;"></div><div class="absolute" style="top:8.3333%;bottom:8.3333%;right:38%;width:8px;background-image:linear-gradient(to bottom,rgba(255,255,255,.9) 0,rgba(255,255,255,.9) 35%,transparent 35%);background-size:100% 1%;"></div><div class="absolute" style="top:8.3333%;bottom:8.3333%;left:0;width:6px;background-image:linear-gradient(to bottom,rgba(255,255,255,.9) 0,rgba(255,255,255,.9) 35%,transparent 35%);background-size:100% 1%;"></div><div class="absolute" style="top:8.3333%;bottom:8.3333%;right:0;width:6px;background-image:linear-gradient(to bottom,rgba(255,255,255,.9) 0,rgba(255,255,255,.9) 35%,transparent 35%);background-size:100% 1%;"></div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(2/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">10</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(2/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">10</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(3/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">20</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(3/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">20</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(4/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">30</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(4/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">30</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(5/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">40</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(5/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">40</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(6/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">50</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(6/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">50</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(7/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">40</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(7/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">40</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(8/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">30</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(8/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">30</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(9/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">20</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(9/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">20</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(10/12*100% + 5px);left:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">10</div>
+                        <div class="absolute text-white/80 text-[22px] font-bold leading-none" style="top:calc(10/12*100% + 5px);right:13%;text-shadow:0 2px 0 rgba(0,0,0,.25)">10</div>
+                        <!-- ball at midfield -->
+                        <div class="absolute" style="left:50%;top:50%;width:56px;height:44px;transform:translate(-50%,-50%);">
+                            <div class="absolute left-1/2 bottom-[4px] w-[46px] h-[10px] rounded-[50%]" style="transform:translateX(-45%);background:radial-gradient(ellipse at center,rgba(0,0,0,.8) 0%,rgba(0,0,0,.55) 45%,rgba(0,0,0,0) 75%);"></div>
+                            <svg viewBox="0 0 20 12" class="absolute left-1/2 top-1/2 w-10 h-6 pixel-art" style="transform:translate(-50%,-62%) rotate(-8deg)"><rect x="5" y="0" width="10" height="1" fill="#1F0F05"/><rect x="3" y="1" width="14" height="1" fill="#1F0F05"/><rect x="2" y="2" width="16" height="1" fill="#1F0F05"/><rect x="1" y="3" width="18" height="1" fill="#1F0F05"/><rect x="0" y="4" width="20" height="1" fill="#1F0F05"/><rect x="0" y="5" width="20" height="1" fill="#1F0F05"/><rect x="0" y="6" width="20" height="1" fill="#1F0F05"/><rect x="0" y="7" width="20" height="1" fill="#1F0F05"/><rect x="1" y="8" width="18" height="1" fill="#1F0F05"/><rect x="2" y="9" width="16" height="1" fill="#1F0F05"/><rect x="3" y="10" width="14" height="1" fill="#1F0F05"/><rect x="5" y="11" width="10" height="1" fill="#1F0F05"/><rect x="4" y="1" width="12" height="1" fill="#D97706"/><rect x="3" y="2" width="14" height="1" fill="#D97706"/><rect x="2" y="3" width="16" height="1" fill="#B45309"/><rect x="1" y="4" width="18" height="1" fill="#B45309"/><rect x="1" y="5" width="18" height="1" fill="#B45309"/><rect x="1" y="6" width="18" height="1" fill="#B45309"/><rect x="1" y="7" width="18" height="1" fill="#92400E"/><rect x="2" y="8" width="16" height="1" fill="#92400E"/><rect x="3" y="9" width="14" height="1" fill="#92400E"/><rect x="4" y="10" width="12" height="1" fill="#78350F"/><rect x="4" y="2" width="1" height="8" fill="#F8FAFC"/><rect x="15" y="2" width="1" height="8" fill="#F8FAFC"/><rect x="5" y="3" width="1" height="6" fill="#CBD5E1"/><rect x="14" y="3" width="1" height="6" fill="#CBD5E1"/><rect x="6" y="5" width="8" height="1" fill="#F8FAFC"/><rect x="7" y="3" width="1" height="5" fill="#F8FAFC"/><rect x="9" y="3" width="1" height="5" fill="#F8FAFC"/><rect x="11" y="3" width="1" height="5" fill="#F8FAFC"/></svg>
+                        </div>
+                </div>
+            </div>
+
+            <!-- Bottom bar -->
+            <div class="flex items-center gap-2 px-2 pt-1 pb-3 h-[66px] shrink-0">
+                <div class="layer-fix relative flex-1 min-w-0 h-[44px] flex items-center gap-2 px-3">
+                    <span class="notch" style="--bc:#1E4FA3;--bw:2px;--n:4px;--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                    <span id="mf-dot" class="w-2.5 h-2.5 shrink-0" style="background:#4ADE80;animation:conn-pulse 1.4s steps(2) infinite"></span>
+                    <span id="mf-status" class="text-white text-[12px] font-bold tracking-wider uppercase truncate">Live &middot; connected</span>
+                </div>
+                <button id="mf-leave" class="layer-fix relative w-[112px] h-[44px] flex items-center justify-center active:translate-y-[2px] transition-transform">
+                    <span class="notch" style="--bc:#5B1010;--bw:2px;--n:4px;--fill:linear-gradient(180deg,#F26B6B,#C93434);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                    <span class="relative text-white text-[15px] font-bold tracking-widest" style="text-shadow:0 2px 0 rgba(0,0,0,.4)">LEAVE</span>
+                </button>
+            </div>
+
+            <!-- VS intro (plays first, then fades out to reveal the field) -->
+            <div id="vs-intro">
+                <div class="vs-title text-[#FFC94A] text-[30px] font-bold tracking-widest" style="text-shadow:0 3px 0 rgba(0,0,0,.6)">MATCH FOUND!</div>
+                <div class="vs-top layer-fix relative w-[78%] px-4 py-3 flex flex-col items-end">
+                    <span class="notch" style="--bc:#A32B2B;--bw:2px;--n:4px;--fill:linear-gradient(180deg,#8E2222,#4A0F0F);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                    <span class="text-[10px] font-bold tracking-widest text-[#FF9A9A] uppercase leading-none">Opponent</span>
+                    <span id="vs-opp-name" class="text-white text-[22px] font-bold leading-tight truncate max-w-full">Player</span>
+                    <span class="flex items-center gap-1.5 mt-1"><span id="vs-opp-rank" class="text-[#FFC94A]/70 text-[11px] font-bold uppercase tracking-wider"></span><span id="vs-opp-rating" class="text-[#FFC94A] text-[15px] font-bold">0</span><svg viewBox="0 0 8 7" class="w-3 h-[10px] pixel-art" shape-rendering="crispEdges"><rect x="1" y="0" width="6" height="1" fill="#FFC94A"/><rect x="1" y="1" width="6" height="3" fill="#FFC94A"/><rect x="2" y="4" width="4" height="1" fill="#D9A21E"/><rect x="3" y="5" width="2" height="1" fill="#D9A21E"/><rect x="2" y="6" width="4" height="1" fill="#FFC94A"/></svg></span>
+                </div>
+                <div class="vs-vs text-white text-[48px] font-bold leading-none" style="text-shadow:0 4px 0 rgba(0,0,0,.6)">VS</div>
+                <div class="vs-bot layer-fix relative w-[78%] px-4 py-3 flex flex-col items-start">
+                    <span class="notch" style="--bc:#1E4FA3;--bw:2px;--n:4px;--fill:linear-gradient(180deg,#18408F,#0E2249);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                    <span class="text-[10px] font-bold tracking-widest text-[#5EEBFF] uppercase leading-none">You</span>
+                    <span id="vs-me-name" class="text-white text-[22px] font-bold leading-tight truncate max-w-full">Player</span>
+                    <span class="flex items-center gap-1.5 mt-1"><svg viewBox="0 0 8 7" class="w-3 h-[10px] pixel-art" shape-rendering="crispEdges"><rect x="1" y="0" width="6" height="1" fill="#FFC94A"/><rect x="1" y="1" width="6" height="3" fill="#FFC94A"/><rect x="2" y="4" width="4" height="1" fill="#D9A21E"/><rect x="3" y="5" width="2" height="1" fill="#D9A21E"/><rect x="2" y="6" width="4" height="1" fill="#FFC94A"/></svg><span id="vs-me-rating" class="text-[#FFC94A] text-[15px] font-bold">0</span><span id="vs-me-rank" class="text-[#FFC94A]/70 text-[11px] font-bold uppercase tracking-wider"></span></span>
+                </div>
+            </div>
+
+            <!-- Opponent left -->
+            <div id="match-left">
+                <div class="layer-fix relative w-[80%] px-5 py-5 flex flex-col items-center gap-4">
+                    <span class="notch" style="--bc:#1E4FA3;--bw:2px;--n:4px;--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                    <span class="text-[#FFC94A] text-[22px] font-bold tracking-widest text-center">OPPONENT LEFT</span>
+                    <span id="match-left-name" class="text-white/80 text-[13px] text-center">The match has ended.</span>
+                    <button id="match-left-btn" class="layer-fix relative w-[190px] h-[46px] flex items-center justify-center active:translate-y-[2px] transition-transform">
+                        <span class="notch" style="--bc:#0B1330;--bw:3px;--n:4px;--fill:linear-gradient(180deg,#F7C245,#DE9420);--shA:inset -2px -2px 0 rgba(0,0,0,.55),inset 2px 2px 0 rgba(255,255,255,.14);"></span>
+                        <span class="relative text-[#0B1330] text-[16px] font-bold tracking-widest">BACK TO MENU</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- toast -->
+        <div id="toast"></div>
     </div>
 
     <script>
@@ -943,6 +1130,447 @@
                 }, function () { draw(0, rEnd); busy = false; });
             });
         }, { passive: false });
+    })();
+    </script>
+
+    <script>
+/* ===== Matchmaking (presence-based, no server) =====
+   Every searching device publishes {st:'searching', rating, ...} in its room presence.
+   Everyone sees the same list, so we pair by rating with a handshake:
+     A proposes to B      ->  A: {st:'searching', prop:B, mid}
+     B accepts            ->  B: {st:'matched',   opp:A, mid}
+     A sees B accepted    ->  A: {st:'ingame',    opp:B, mid}   (match starts)
+     B sees A in-game     ->  B: {st:'ingame',    opp:A, mid}   (match starts)
+*/
+function createMatchmaker(room, opts) {
+    opts = opts || {};
+    const now = opts.now || function () { return Date.now(); };
+    const getProfile = opts.profile || function () { return { rating: 0, name: 'Player', rank: '' }; };
+    const cb = {
+        onMatch: opts.onMatch || function () {},
+        onOpponentLeft: opts.onOpponentLeft || function () {},
+        onState: opts.onState || function () {}
+    };
+
+    // tuning
+    const BASE_WINDOW = 100;      // rating points that count as an "even" match at the start
+    const WIDEN_STEP = 50;        // extra points allowed ...
+    const WIDEN_EVERY = 3000;     // ... every 3s of waiting
+    const PROPOSE_TIMEOUT = 4000; // give up on an unanswered proposal
+    const MATCHED_TIMEOUT = 5000; // give up if the other side never confirms
+    const LEFT_GRACE = 2000;      // opponent must be gone this long before we call it "left"
+
+    let mode = 'idle';            // idle | searching | matched | ingame
+    let mid = null, opp = null, prop = null;
+    let searchStart = 0, propSince = 0, matchedSince = 0, goneSince = 0;
+    let seen = new Map();         // peer -> local time we first saw it searching
+    let unsub = null, timer = null;
+    let oppInfo = null;
+
+    function set(patch) {
+        try { const p = room.presence(patch); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+    }
+    function setMode(m) { mode = m; cb.onState(m); }
+    function myPeer() { const m = room.peers().find(function (p) { return p.sameTab; }); return m ? m.peer : null; }
+    function others() { return room.peers().filter(function (p) { return !p.sameTab && p.kind !== 'agent'; }); }
+    function pr(p) { return (p && p.presence) || {}; }
+    function win(waitMs) { return BASE_WINDOW + Math.floor(waitMs / WIDEN_EVERY) * WIDEN_STEP; }
+    function num(v) { return typeof v === 'number' && isFinite(v) ? v : 0; }
+
+    function infoOf(p) {
+        const x = pr(p);
+        return { peer: p.peer, name: String(x.name || 'Player'), rating: num(x.rating), rank: String(x.rank || '') };
+    }
+
+    function candidate(list, me) {
+        const t = now();
+        const myRating = num(getProfile().rating);
+        const myWait = t - searchStart;
+        let best = null, bestDiff = Infinity;
+        list.forEach(function (p) {
+            const x = pr(p);
+            if (x.st !== 'searching') return;
+            if (x.prop && x.prop !== me) return;              // busy handshaking with someone else
+            const theirWait = t - (seen.get(p.peer) || t);
+            const diff = Math.abs(num(x.rating) - myRating);
+            if (diff > Math.max(win(myWait), win(theirWait))) return;
+            if (diff < bestDiff || (diff === bestDiff && p.peer < best.peer)) { best = p; bestDiff = diff; }
+        });
+        return best;
+    }
+
+    function startMatch(p) {
+        oppInfo = infoOf(p);
+        opp = p.peer;
+        goneSince = 0;
+        setMode('ingame');
+        set({ st: 'ingame', opp: opp, mid: mid, prop: null });
+        cb.onMatch({ mid: mid, opp: oppInfo, me: me0() });
+    }
+    function me0() { const pf = getProfile(); return { peer: myPeer(), name: pf.name, rating: num(pf.rating), rank: pf.rank || '' }; }
+
+    function backToSearching() {
+        mid = null; opp = null; prop = null;
+        setMode('searching');
+        set({ st: 'searching', opp: null, mid: null, prop: null });
+    }
+
+    function evaluate() {
+        if (mode === 'idle') return;
+        if (room.isConnected && !room.isConnected()) { goneSince = 0; return; }   // our own link is down: don't judge anyone
+        const me = myPeer();
+        if (!me) return;
+        const t = now();
+        const list = others();
+        const by = new Map(list.map(function (p) { return [p.peer, p]; }));
+
+        // remember when each searcher first showed up (for window widening)
+        list.forEach(function (p) { if (pr(p).st === 'searching' && !seen.has(p.peer)) seen.set(p.peer, t); });
+        Array.from(seen.keys()).forEach(function (k) { const q = by.get(k); if (!q || pr(q).st !== 'searching') seen.delete(k); });
+
+        if (mode === 'searching') {
+            // 1) someone proposed to me -> accept (if we crossed proposals, the higher id yields to the lower)
+            const props = list.filter(function (p) {
+                const x = pr(p);
+                if (x.st !== 'searching' || x.prop !== me || !x.mid) return false;
+                if (prop === p.peer && me < p.peer) return false;     // I'm the lower id and already proposed: mine stands
+                return true;
+            }).sort(function (a, b) { return a.peer < b.peer ? -1 : 1; });
+            if (props.length) {
+                const P = props[0];
+                mid = pr(P).mid; opp = P.peer; prop = null; matchedSince = t;
+                setMode('matched');
+                set({ st: 'matched', opp: opp, mid: mid, prop: null });
+                return;
+            }
+            // 2) my own proposal
+            if (prop) {
+                const T = by.get(prop), x = pr(T);
+                if (T && (x.st === 'matched' || x.st === 'ingame') && x.opp === me && x.mid === mid) { startMatch(T); return; }
+                const stillOpen = T && x.st === 'searching' && (!x.prop || x.prop === me);
+                if (!stillOpen || t - propSince > PROPOSE_TIMEOUT) { prop = null; mid = null; set({ prop: null, mid: null }); }
+                else return;                                         // keep waiting for the answer
+            }
+            // 3) look for an even opponent and propose
+            const best = candidate(list, me);
+            if (best && (me < best.peer || t - searchStart > 3000)) {
+                prop = best.peer; mid = me + '.' + t.toString(36); propSince = t;
+                set({ st: 'searching', prop: prop, mid: mid });
+            }
+            return;
+        }
+
+        if (mode === 'matched') {
+            const O = by.get(opp), x = pr(O);
+            if (O && (x.st === 'matched' || x.st === 'ingame') && x.opp === me && x.mid === mid) { startMatch(O); return; }
+            const handshaking = O && x.st === 'searching' && x.prop === me && x.mid === mid;
+            if ((!O || !handshaking) && t - matchedSince > MATCHED_TIMEOUT) backToSearching();
+            else if (!O && t - matchedSince > 1500) backToSearching();
+            return;
+        }
+
+        if (mode === 'ingame') {
+            const O = by.get(opp), x = pr(O);
+            const ok = O && x.mid === mid && (x.st === 'ingame' || x.st === 'matched');
+            if (ok) { goneSince = 0; return; }
+            if (!goneSince) goneSince = t;
+            if (t - goneSince > LEFT_GRACE) {
+                const info = oppInfo;
+                goneSince = 0;
+                setMode('idle'); mid = null; opp = null; prop = null;
+                set({ st: 'idle', opp: null, mid: null, prop: null });
+                cb.onOpponentLeft(info);
+            }
+        }
+    }
+
+    function ensureRunning() {
+        if (!unsub) unsub = room.onPeers(function () { evaluate(); });
+        if (!timer) timer = setInterval(evaluate, 500);
+    }
+    function stopRunning() {
+        if (unsub) { try { unsub(); } catch (e) {} unsub = null; }
+        if (timer) { clearInterval(timer); timer = null; }
+    }
+
+    return {
+        start: function () {
+            if (mode !== 'idle') return;
+            const pf = getProfile();
+            seen = new Map(); mid = null; opp = null; prop = null; searchStart = now();
+            setMode('searching');
+            set({ st: 'searching', since: searchStart, rating: num(pf.rating), name: pf.name, rank: pf.rank || '', opp: null, mid: null, prop: null });
+            ensureRunning();
+            evaluate();
+        },
+        cancel: function () {          // stop searching (or leave a match)
+            mid = null; opp = null; prop = null; goneSince = 0;
+            setMode('idle');
+            set({ st: 'idle', opp: null, mid: null, prop: null });
+            stopRunning();
+        },
+        mode: function () { return mode; },
+        destroy: stopRunning
+    };
+}
+
+/* ===== Online room over a public MQTT broker (works from a downloaded file, no account needed) =====
+   Same interface as Claude's `room` capability (presence / peers / onPeers), so the matchmaker doesn't care which one it gets.
+   Each player publishes its presence to  <ns>/p/<id>  and everyone subscribes to  <ns>/p/+ .
+   If a player disconnects, the broker publishes their "last will" (empty message) and everyone drops them. */
+function createMqttRoom(cfg) {
+    const NS = cfg.ns, URL = cfg.url;
+    const HEARTBEAT = 8000, EXPIRE = 26000;
+    const id = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+    const T_PRES = NS + '/p/', T_HELLO = NS + '/hello';
+
+    let client = null, connected = false, everConnected = false;
+    let mine = {};
+    const others = new Map();                    // id -> { p, seen, raw }
+    const peerListeners = new Set(), statusListeners = new Set();
+    let pubTimer = null, snap = [];
+
+    function s(v, n) { return typeof v === 'string' ? v.slice(0, n) : undefined; }
+    function clean(p) {                          // everything from other players is untrusted: whitelist + clamp
+        const o = {};
+        if (p && typeof p === 'object') {
+            if (['idle', 'searching', 'matched', 'ingame'].indexOf(p.st) >= 0) o.st = p.st;
+            if (typeof p.rating === 'number' && isFinite(p.rating)) o.rating = Math.max(0, Math.min(1e6, Math.round(p.rating)));
+            if (typeof p.since === 'number' && isFinite(p.since)) o.since = p.since;
+            ['name', 'rank'].forEach(function (k) { const v = s(p[k], 16); if (v !== undefined) o[k] = v; });
+            ['prop', 'opp', 'mid'].forEach(function (k) { const v = s(p[k], 64); if (v !== undefined) o[k] = v; });
+        }
+        return Object.freeze(o);
+    }
+    function build() {
+        const arr = [{ peer: id, sameTab: true, isMe: true, kind: 'viewer', guest: false, by: null, presence: Object.freeze(Object.assign({}, mine)), updatedAt: Date.now() }];
+        others.forEach(function (v, pid) { arr.push({ peer: pid, sameTab: false, isMe: false, kind: 'viewer', guest: false, by: null, presence: v.p, updatedAt: v.seen }); });
+        return arr;
+    }
+    function changed() {
+        snap = build();
+        peerListeners.forEach(function (fn) { try { fn({ peers: snap, joined: [], left: [], updated: [] }); } catch (e) {} });
+    }
+    function status(st) { statusListeners.forEach(function (fn) { try { fn(st); } catch (e) {} }); }
+
+    function publishNow() {
+        pubTimer = null;
+        if (!client || !connected) return;
+        try { client.publish(T_PRES + id, JSON.stringify({ p: mine }), { qos: 0, retain: false }); } catch (e) {}
+    }
+    function schedulePublish() { if (!pubTimer) pubTimer = setTimeout(publishNow, 40); }   // coalesce bursts
+
+    function onMessage(topic, payload) {
+        let text = '';
+        try { text = payload == null ? '' : payload.toString(); } catch (e) { return; }
+        if (topic === T_HELLO) {                                   // someone joined: tell them we exist
+            setTimeout(publishNow, Math.random() * 400);
+            return;
+        }
+        if (topic.indexOf(T_PRES) !== 0) return;
+        const pid = topic.slice(T_PRES.length);
+        if (!pid || pid === id) return;
+        if (text === '') { if (others.delete(pid)) changed(); return; }          // left / last will
+        let obj; try { obj = JSON.parse(text); } catch (e) { return; }
+        const p = clean(obj && obj.p);
+        const raw = JSON.stringify(p);
+        const prev = others.get(pid);
+        others.set(pid, { p: p, seen: Date.now(), raw: raw });
+        if (!prev || prev.raw !== raw) changed();
+    }
+
+    function connect() {
+        if (typeof mqtt === 'undefined') { status('unavailable'); return; }
+        try {
+            client = mqtt.connect(URL, {
+                clientId: 'pg_' + id, clean: true, keepalive: 20, reconnectPeriod: 2000, connectTimeout: 8000,
+                will: { topic: T_PRES + id, payload: '', qos: 0, retain: false }
+            });
+        } catch (e) { status('error'); return; }
+        client.on('connect', function () {
+            connected = true; everConnected = true;
+            client.subscribe([T_PRES + '+', T_HELLO], { qos: 0 });
+            client.publish(T_HELLO, '1');
+            publishNow();
+            status('connected'); changed();
+        });
+        client.on('message', onMessage);
+        client.on('close', function () { const was = connected; connected = false; others.clear(); if (was) status('offline'); changed(); });
+        client.on('error', function () { status('error'); });
+    }
+
+    setInterval(function () {                                       // heartbeat + expire silent peers
+        if (connected) publishNow();
+        const t = Date.now(); let drop = false;
+        others.forEach(function (v, pid) { if (t - v.seen > EXPIRE) { others.delete(pid); drop = true; } });
+        if (drop) changed();
+    }, HEARTBEAT);
+    function bye() { try { if (client && connected) client.publish(T_PRES + id, '', { qos: 0, retain: false }); } catch (e) {} }
+    window.addEventListener('pagehide', bye);
+    connect();
+    snap = build();
+
+    return {
+        presence: function (patch) {
+            Object.keys(patch).forEach(function (k) { if (patch[k] === null) delete mine[k]; else mine[k] = patch[k]; });
+            schedulePublish(); changed();
+            return Promise.resolve();
+        },
+        peers: function () { return snap; },
+        onPeers: function (fn) { peerListeners.add(fn); return function () { peerListeners.delete(fn); }; },
+        onStatus: function (fn) { statusListeners.add(fn); return function () { statusListeners.delete(fn); }; },
+        isConnected: function () { return connected; },
+        whenConnected: function (ms) {                              // resolves true once connected, false if it takes too long
+            if (connected) return Promise.resolve(true);
+            return new Promise(function (res) {
+                const t = setTimeout(function () { off(); res(false); }, ms || 8000);
+                const off = function () { clearTimeout(t); statusListeners.delete(h); };
+                const h = function (st) { if (st === 'connected') { off(); res(true); } else if (st === 'unavailable') { off(); res(false); } };
+                statusListeners.add(h);
+            });
+        },
+        id: id
+    };
+}
+
+
+/* ===== Online settings ===== */
+const ONLINE_CONFIG = (function () {
+    const q = new URLSearchParams(location.search);
+    const roomName = (q.get('room') || 'public').replace(/[^a-z0-9_-]/gi, '').slice(0, 32) || 'public';
+    const custom = q.get('broker');
+    return {
+        // Free public MQTT broker (no account needed). Everyone using it must use the same one. Swap for your own if you like.
+        url: custom && /^wss:\/\//.test(custom) ? custom : 'wss://broker.hivemq.com:8884/mqtt',
+        // Change this string to make your own private "universe" of players.
+        ns: 'pixelgame-b7e3c1/v1/' + roomName          // add ?room=friends to the URL to play in a private room
+    };
+})();
+
+    /* ===== Play button + match screen ===== */
+    (function () {
+        const $ = function (id) { return document.getElementById(id); };
+        const btn = $('play-btn'), idle = $('play-idle'), search = $('play-search'), sheen = $('play-sheen'), timer = $('play-timer');
+        if (!btn) return;
+
+        let searching = false, tick = null, start = 0, room = null, mm = null, toastT = null;
+
+        function tag(peer) { return String(peer || '').slice(-4).toUpperCase(); }
+        function toast(msg) {
+            const t = $('toast'); t.textContent = msg; t.classList.add('show');
+            clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('show'); }, 4200);
+        }
+        function profile() {
+            return {
+                rating: parseInt(($('profile-trophies').textContent || '0').replace(/[^0-9]/g, ''), 10) || 0,
+                name: ($('profile-name').textContent || 'Player').trim(),
+                rank: ($('profile-rank').textContent || '').trim()
+            };
+        }
+
+        /* ---- search button UI ---- */
+        function setSearchingUI(on) {
+            searching = on;
+            idle.classList.toggle('hidden', on); idle.classList.toggle('flex', !on);
+            search.classList.toggle('hidden', !on); search.classList.toggle('flex', on);
+            sheen.classList.toggle('hidden', !on);
+            clearInterval(tick);
+            if (on) {
+                start = Date.now(); timer.textContent = '0:00';
+                tick = setInterval(function () {
+                    const sec = Math.floor((Date.now() - start) / 1000);
+                    timer.textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+                }, 250);
+            }
+        }
+
+        /* ---- match screen ---- */
+        function fill(prefix, who) {
+            $(prefix + '-name').textContent = who.name + ' #' + tag(who.peer);
+            $(prefix + '-rating').textContent = who.rating;
+            $(prefix + '-rank').textContent = who.rank;
+        }
+        function openMatch(m) {
+            fill('hud-me', m.me); fill('hud-opp', m.opp);
+            fill('vs-me', m.me);  fill('vs-opp', m.opp);
+            $('mf-oppzone').textContent = (m.opp.name + ' #' + tag(m.opp.peer)).toUpperCase();
+            $('mf-myzone').textContent = 'YOU';
+            $('mf-dot').style.background = '#4ADE80';
+            $('mf-status').textContent = 'Live \u00B7 vs ' + m.opp.name + ' #' + tag(m.opp.peer);
+            $('match-left').classList.remove('open');
+            const intro = $('vs-intro');
+            intro.classList.remove('done', 'run'); void intro.offsetWidth; intro.classList.add('run');
+            $('match-screen').classList.add('open');
+            setTimeout(function () { intro.classList.add('done'); }, 2300);
+        }
+        function closeMatch() {
+            $('match-screen').classList.remove('open');
+            $('match-left').classList.remove('open');
+        }
+
+        /* ---- online room ---- */
+        function updateOnline() {
+            const line = $('online-line');
+            if (!room || (room.isConnected && !room.isConnected())) { line.classList.add('hidden'); return; }
+            const n = room.peers().filter(function (p) { return p.kind !== 'agent'; }).length;
+            $('online-count').textContent = Math.max(n, 1);
+            line.classList.remove('hidden');
+        }
+
+        // Inside Claude we use Claude's own shared room. Anywhere else (a downloaded file, your own site)
+        // we go through a public MQTT broker. Same matchmaking either way.
+        function mqttRoom() { return typeof mqtt === 'undefined' ? null : createMqttRoom(ONLINE_CONFIG); }
+        const roomPromise = (window.claude && typeof window.claude.use === 'function')
+            ? window.claude.use('room').catch(function () { return null; }).then(function (r) { return r || mqttRoom(); })
+            : Promise.resolve(mqttRoom());
+
+        roomPromise.then(function (r) {
+            if (!r) return;
+            room = r;
+            try { room.presence({ st: 'idle' }); } catch (e) {}
+            room.onPeers(updateOnline);
+            if (room.onStatus) room.onStatus(updateOnline);
+            mm = createMatchmaker(room, {
+                profile: profile,
+                onMatch: function (m) { setSearchingUI(false); openMatch(m); },
+                onOpponentLeft: function (info) {
+                    $('mf-dot').style.background = '#F26B6B';
+                    $('mf-status').textContent = 'Opponent left';
+                    $('match-left-name').textContent = (info ? info.name + ' #' + tag(info.peer) + ' left' : 'Your opponent left') + ' the match.';
+                    $('match-left').classList.add('open');
+                }
+            });
+            updateOnline();
+        });
+
+        /* ---- buttons ---- */
+        btn.addEventListener('click', function () {
+            if (searching) {                                  // cancel
+                setSearchingUI(false);
+                if (mm) mm.cancel();
+                return;
+            }
+            setSearchingUI(true);
+            roomPromise.then(function () {
+                if (!searching) return;                       // cancelled while connecting
+                if (!mm) {
+                    setSearchingUI(false);
+                    toast("Online play couldn't load. Check your internet connection and reload the game.");
+                    return;
+                }
+                (room.whenConnected ? room.whenConnected(8000) : Promise.resolve(true)).then(function (ok) {
+                    if (!searching) return;
+                    if (!ok) {
+                        setSearchingUI(false);
+                        toast("Couldn't reach the matchmaking server. Check your internet connection and try again.");
+                        return;
+                    }
+                    mm.start();
+                });
+            });
+        });
+        $('mf-leave').addEventListener('click', function () { if (mm) mm.cancel(); closeMatch(); });
+        $('match-left-btn').addEventListener('click', function () { if (mm) mm.cancel(); closeMatch(); });
     })();
     </script>
 </body>
