@@ -12,14 +12,14 @@
     
     <!-- Dynamic Manifest Placeholder -->
     <link id="manifest-placeholder" rel="manifest" href="">
- 
+
     <title>Pixel Game</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;700&display=swap" rel="stylesheet">
- 
+
     <style>
         :root {
             --ink: #050912;
@@ -35,36 +35,31 @@
             --violet: #8B3EFF;
             --green: #35D46A;
         }
- 
-        /* Base pixel font for the whole game */
+
         body {
             font-family: 'Pixelify Sans', sans-serif;
-            background-color: #000; /* Dark background outside the game area */
+            background-color: #000;
             margin: 0;
             padding: 0;
-            touch-action: manipulation; /* Prevent double-tap zoom */
+            touch-action: manipulation;
             -webkit-user-select: none;
             user-select: none;
             image-rendering: pixelated;
         }
- 
-        /* Mobile portrait container */
+
         #game-container {
             width: 100vw;
             height: 100vh;
-            max-width: 480px; /* Constrain to mobile width on desktop */
+            max-width: 480px;
             margin: 0 auto;
-            background:
-                radial-gradient(circle at 20% 0%, #123166 0%, transparent 55%),
-                radial-gradient(circle at 100% 30%, #2A1155 0%, transparent 45%),
-                linear-gradient(180deg, #071230 0%, #030A1C 60%, #020610 100%);
+            background-color: var(--navy-deep);
             position: relative;
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
- 
-        /* Faint scanline overlay for CRT / retro screen texture */
+
+        /* Screen glare overlay */
         #game-container::after {
             content: "";
             position: absolute;
@@ -81,8 +76,7 @@
             mix-blend-mode: multiply;
             opacity: 0.5;
         }
- 
-        /* Enforce portrait mode */
+
         #landscape-warning {
             display: none;
             position: fixed;
@@ -96,13 +90,12 @@
             flex-direction: column;
             padding: 20px;
         }
- 
+
         @media (orientation: landscape) and (max-height: 600px) {
             #landscape-warning { display: flex; }
             #game-container { display: none; }
         }
- 
-        /* Hard pixel corner-notches: authentic 8-bit frame instead of rounded corners */
+
         .pixel-corners {
             clip-path: polygon(
                 0 4px, 4px 4px, 4px 0,
@@ -111,6 +104,7 @@
                 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px)
             );
         }
+        
         .pixel-corners-sm {
             clip-path: polygon(
                 0 2px, 2px 2px, 2px 0,
@@ -119,23 +113,39 @@
                 2px 100%, 2px calc(100% - 2px), 0 calc(100% - 2px)
             );
         }
- 
-        /* Chunky Pixel UI borders */
+
         .pixel-panel {
             background: linear-gradient(180deg, var(--navy-panel) 0%, var(--navy) 100%);
             border: 2px solid var(--blue-line);
-            /* Inner 3D highlight/shadow effect typical in retro games */
             box-shadow: inset -2px -2px 0px 0px rgba(0,0,0,0.6),
                         inset 2px 2px 0px 0px rgba(120,180,255,0.25),
                         0 3px 0px 0px rgba(0,0,0,0.5);
         }
- 
-        .pixel-inner-panel {
-            background-color: #060D1A;
-            box-shadow: inset 2px 2px 0px 0px rgba(0,0,0,0.5), 
-                        inset -1px -1px 0px 0px rgba(255,255,255,0.1);
+
+        /* Notched-corner panel background WITHOUT clip-path (clip-path + animated
+           children makes browsers randomly drop the background). Two overlapping
+           rectangles form the same stepped corners. */
+        .notch { position:absolute; inset:0; pointer-events:none; z-index:-1; }
+        .layer-fix { transform:translateZ(0); will-change:transform; isolation:isolate; }
+        .notch::before, .notch::after {
+            content:""; position:absolute; box-sizing:border-box;
+            border:2px solid var(--bc, #1E4FA3);
         }
- 
+        .notch::before {
+            inset:0 var(--n,4px); background:var(--fill); background-origin:border-box;
+            box-shadow:var(--shA, none);
+        }
+        .notch::after {
+            inset:var(--n,4px) 0; background:var(--fillB, var(--fill)); background-origin:border-box;
+            border-top-width:0; border-bottom-width:0;
+            box-shadow:var(--shB, none);
+        }
+
+        /* Two-tone card background lives on its own layer (see note in fix) */
+        .card-bg {
+            background: linear-gradient(to bottom, #0E2249 0, #0E2249 60%, #09152E 60%, #09152E 100%);
+        }
+
         .pixel-btn {
             background: linear-gradient(180deg, #1A3A73 0%, #11244A 100%);
             border: 2px solid #060D1A;
@@ -148,8 +158,7 @@
             box-shadow: inset 2px 2px 0px 0px rgba(0,0,0,0.6), 
                         inset -2px -2px 0px 0px rgba(255,255,255,0.2);
         }
- 
-        /* Punchy black-outline pixel text (crisper than blurry drop-shadows) */
+
         .pixel-text {
             text-shadow:
                 1px 0 0 #000, -1px 0 0 #000,
@@ -159,13 +168,11 @@
         .pixel-text-thin {
             text-shadow: 0 2px 0 rgba(0,0,0,0.9);
         }
- 
-        /* SVG pixel art crisp rendering */
+
         svg.pixel-art {
             shape-rendering: crispEdges;
         }
- 
-        /* Shine Animation for Season Banner */
+
         @keyframes shine {
             0% { transform: translateX(-150%) skewX(-15deg); }
             15% { transform: translateX(300%) skewX(-15deg); }
@@ -181,30 +188,19 @@
             z-index: 5;
             pointer-events: none;
         }
- 
-        /* Twinkling starfield */
-        @keyframes twinkle {
-            0%, 100% { opacity: 0.15; transform: scale(0.8); }
-            50% { opacity: 0.9; transform: scale(1.2); }
-        }
-        .star {
-            animation: twinkle 2.4s ease-in-out infinite;
-        }
- 
-        /* Slow ambient pulse for glowing card art */
+
         @keyframes glow-pulse {
             0%, 100% { filter: drop-shadow(0 0 2px rgba(94,235,255,0.15)); }
             50% { filter: drop-shadow(0 0 7px rgba(94,235,255,0.55)); }
         }
         .glow-pulse { animation: glow-pulse 2.6s ease-in-out infinite; }
- 
+
         @keyframes gem-sparkle {
             0%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
             50% { opacity: 1; transform: scale(1) rotate(20deg); }
         }
         .gem-sparkle { animation: gem-sparkle 1.8s ease-in-out infinite; }
- 
-        /* Striped animated fill for progress bar */
+
         @keyframes bar-stripes {
             0% { background-position: 0 0; }
             100% { background-position: 16px 0; }
@@ -218,14 +214,13 @@
             background-size: 16px 16px;
             animation: bar-stripes 0.7s linear infinite;
         }
- 
+
         @keyframes float-y {
             0%, 100% { transform: translateY(0); }
             50% { transform: translateY(-2px); }
         }
         .float-y { animation: float-y 2.2s ease-in-out infinite; }
- 
-        /* Subtle idle "living toy" bob for 3D nav icons, paired with a squashing floor shadow */
+
         @keyframes icon-bob {
             0%, 100% { transform: translateY(0) rotate(0deg); }
             50% { transform: translateY(-3px) rotate(-1.5deg); }
@@ -236,6 +231,7 @@
             position: relative;
             z-index: 1;
         }
+        
         @keyframes shadow-pulse {
             0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 0.55; }
             50% { transform: translateX(-50%) scaleX(0.72); opacity: 0.3; }
@@ -251,10 +247,58 @@
             animation: shadow-pulse 3.2s ease-in-out infinite;
             z-index: 0;
         }
+
+        /* Dynamic CSS Field View - Middle Only, Crisp & Detailed */
+        .field-perspective {
+            transform: translateY(-50px) perspective(600px) rotateX(45deg) scale(2.8);
+            transform-origin: center 50%;
+            image-rendering: pixelated;
+        }
+        
+        .yard-segment {
+            height: 100px;
+            width: 100%;
+            position: relative;
+            border-bottom: 4px solid rgba(255,255,255,0.9);
+            box-sizing: border-box;
+        }
+        
+        /* The 50 Yard line gets a subtle distinct stripe */
+        .yard-segment.fifty-line {
+            border-bottom: 4px solid #FCD34D;
+        }
+
+        /* Vibrant grass colors */
+        .yard-segment.light { background-color: #22C55E; }
+        .yard-segment.dark { background-color: #16A34A; }
+
+        .hash-column {
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 14px;
+            background-image: repeating-linear-gradient(
+                to bottom,
+                rgba(255,255,255,0.9) 0px, 
+                rgba(255,255,255,0.9) 4px,
+                transparent 4px, 
+                transparent 20px /* 100px / 5 yards = 20px per yard spacing */
+            );
+        }
+
+        /* Authentic scattered pixel grass texture */
+        .grass-texture {
+            position: absolute;
+            inset: 0;
+            opacity: 0.85;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><path fill="%23000000" opacity="0.15" d="M4 4h2v2H4z M12 8h2v2h-2z M24 2h2v2h-2z M36 12h2v2h-2z M48 6h2v2h-2z M58 14h2v2h-2z M8 22h2v2H8z M20 18h2v2h-2z M32 26h2v2h-2z M44 20h2v2h-2z M54 28h2v2h-2z M2 38h2v2H2z M16 34h2v2h-2z M28 42h2v2h-2z M40 36h2v2h-2z M52 44h2v2h-2z M60 32h2v2h-2z M10 52h2v2h-2z M22 48h2v2h-2z M34 56h2v2h-2z M46 50h2v2h-2z M56 58h2v2h-2z M6 60h2v2H6z M26 62h2v2h-2z M42 60h2v2h-2z M14 2h2v2h-2z M22 8h2v2h-2z M38 4h2v2h-2z M46 16h2v2h-2z"/><path fill="%23ffffff" opacity="0.15" d="M8 2h2v2H8z M20 12h2v2h-2z M32 4h2v2h-2z M44 14h2v2h-2z M54 8h2v2h-2z M2 18h2v2H2z M16 28h2v2h-2z M28 22h2v2h-2z M40 30h2v2h-2z M52 24h2v2h-2z M62 20h2v2h-2z M12 38h2v2h-2z M24 44h2v2h-2z M36 34h2v2h-2z M48 42h2v2h-2z M58 36h2v2h-2z M6 50h2v2H6z M18 58h2v2h-2z M30 52h2v2h-2z M42 58h2v2h-2z M50 62h2v2h-2z M60 48h2v2h-2z M10 10h2v2h-2z M26 14h2v2h-2z M34 20h2v2h-2z M50 10h2v2h-2z"/></svg>');
+            background-size: 64px 64px;
+            mix-blend-mode: overlay;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
- 
+
     <div id="landscape-warning">
         <svg viewBox="0 0 24 24" class="w-16 h-16 mb-4 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
@@ -263,84 +307,62 @@
         <h1 class="text-2xl font-bold mb-2">Portrait Mode Only</h1>
         <p class="text-gray-400">Please rotate your device back to portrait to play.</p>
     </div>
- 
+
     <div id="game-container">
         
         <!-- TOP BAR -->
-        <div class="w-full bg-gradient-to-b from-[#050B1C] to-[#030814] border-b-[3px] border-[#0F2A5C] p-2 pt-3 flex flex-col gap-2 shadow-[0_4px_10px_rgba(0,0,0,0.7)] z-20 relative">
+        <div class="absolute top-0 left-0 w-full p-2 pt-3 flex flex-col gap-2 z-20">
             
             <!-- Row 1: Profile & Menu -->
             <div class="flex justify-between items-stretch w-full gap-2">
                 
                 <!-- Profile Section (Left) -->
-                <div class="flex-1 flex items-center pixel-panel pixel-corners p-1 pr-3 relative">
+                <div class="layer-fix flex-1 flex items-center p-1 pr-3 relative">
+                    <span class="notch" style="--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.6),inset 2px 2px 0 rgba(120,180,255,.25);--n:4px;"></span>
                     
-                    <!-- Avatar Box (Upgraded Frame, Same Avatar) -->
+                    <!-- Avatar Box -->
                     <div class="w-[50px] h-[50px] bg-gradient-to-b from-[#3B82F6] to-[#1D4ED8] pixel-corners-sm border-[2px] border-[#7DC4FF] relative flex justify-center items-end overflow-hidden shadow-[0_0_0_2px_#050B1C,0_2px_6px_rgba(0,0,0,0.6)] shrink-0">
-                        <!-- Pixel Art Avatar SVG -->
                         <svg viewBox="0 0 16 16" class="w-full h-full pixel-art absolute bottom-0" preserveAspectRatio="xMidYMax meet">
-                            <!-- Black Base/Silhouette -->
                             <rect x="5" y="1" width="6" height="15" fill="#020617"/>
                             <rect x="4" y="2" width="8" height="14" fill="#020617"/>
                             <rect x="3" y="3" width="10" height="13" fill="#020617"/>
                             <rect x="2" y="4" width="12" height="12" fill="#020617"/>
                             <rect x="1" y="13" width="14" height="3" fill="#020617"/>
                             <rect x="0" y="14" width="16" height="2" fill="#020617"/>
- 
-                            <!-- Helmet Base -->
                             <rect x="6" y="2" width="4" height="1" fill="#1E3A8A"/>
                             <rect x="5" y="3" width="6" height="1" fill="#1E3A8A"/>
                             <rect x="4" y="4" width="8" height="4" fill="#1E3A8A"/>
                             <rect x="4" y="8" width="1" height="4" fill="#1E3A8A"/>
                             <rect x="11" y="8" width="1" height="4" fill="#1E3A8A"/>
- 
-                            <!-- Helmet Highlights -->
                             <rect x="6" y="2" width="1" height="1" fill="#3B82F6"/>
                             <rect x="5" y="3" width="1" height="2" fill="#3B82F6"/>
                             <rect x="4" y="5" width="1" height="2" fill="#3B82F6"/>
- 
-                            <!-- Helmet Stripe -->
                             <rect x="7" y="2" width="2" height="6" fill="#FFFFFF"/>
- 
-                            <!-- Skin/Face -->
                             <rect x="5" y="8" width="6" height="4" fill="#FDBA74"/>
-                            
-                            <!-- Face Shadow -->
                             <rect x="9" y="8" width="2" height="4" fill="#EA580C"/>
                             <rect x="5" y="11" width="6" height="1" fill="#EA580C"/>
- 
-                            <!-- Eyes -->
                             <rect x="6" y="9" width="1" height="1" fill="#020617"/>
                             <rect x="8" y="9" width="1" height="1" fill="#020617"/>
- 
-                            <!-- Facemask Bars -->
                             <rect x="4" y="10" width="8" height="1" fill="#E2E8F0"/>
                             <rect x="5" y="12" width="6" height="1" fill="#E2E8F0"/>
                             <rect x="6" y="10" width="1" height="3" fill="#94A3B8"/>
                             <rect x="9" y="10" width="1" height="3" fill="#94A3B8"/>
- 
-                            <!-- Jersey/Body -->
                             <rect x="3" y="13" width="10" height="1" fill="#1E3A8A"/>
                             <rect x="2" y="14" width="12" height="2" fill="#1E3A8A"/>
- 
-                            <!-- Jersey Highlights -->
                             <rect x="3" y="13" width="2" height="2" fill="#3B82F6"/>
                             <rect x="11" y="13" width="2" height="2" fill="#3B82F6"/>
                             <rect x="2" y="15" width="2" height="1" fill="#3B82F6"/>
                             <rect x="12" y="15" width="2" height="1" fill="#3B82F6"/>
- 
-                            <!-- Jersey Details (Collar/Stripes) -->
                             <rect x="7" y="13" width="2" height="1" fill="#FFFFFF"/>
                             <rect x="4" y="15" width="1" height="1" fill="#FFFFFF"/>
                             <rect x="11" y="15" width="1" height="1" fill="#FFFFFF"/>
                         </svg>
                     </div>
- 
+
                     <!-- Name and Division -->
                     <div class="flex flex-col justify-center ml-2.5">
                         <span class="text-white font-bold text-[17px] leading-tight tracking-wide pixel-text">Player</span>
                         <div class="flex items-center gap-1.5 mt-0.5">
-                            <!-- Detailed Shield Icon -->
                             <svg viewBox="0 0 10 12" class="w-3.5 h-4 pixel-art drop-shadow-md">
                                 <rect x="1" y="0" width="8" height="1" fill="#451A03"/>
                                 <rect x="0" y="1" width="10" height="7" fill="#451A03"/>
@@ -358,9 +380,10 @@
                         </div>
                     </div>
                 </div>
- 
+
                 <!-- Menu Button (Right) -->
-                <button class="pixel-btn pixel-corners-sm w-[54px] flex justify-center items-center shadow-[0_3px_0_#050D1F] active:translate-y-[3px] active:shadow-none transition-all">
+                <button class="layer-fix relative w-[54px] flex justify-center items-center active:translate-y-[3px] transition-transform">
+                    <span class="notch" style="--fill:linear-gradient(180deg,#1A3A73,#11244A);--bc:#060D1A;--n:2px;--shA:inset -2px -2px 0 rgba(0,0,0,.6),inset 2px 2px 0 rgba(255,255,255,.25);"></span>
                     <svg viewBox="0 0 12 12" class="w-7 h-7 pixel-art drop-shadow-[0_2px_0_rgba(0,0,0,0.8)]">
                         <rect x="2" y="2" width="8" height="2" fill="#5EEBFF"/>
                         <rect x="2" y="5.5" width="8" height="2" fill="#5EEBFF"/>
@@ -368,14 +391,14 @@
                     </svg>
                 </button>
             </div>
- 
-            <!-- Row 2: Resources (Trophies, Coins, Gems) -->
+
+            <!-- Row 2: Resources -->
             <div class="flex justify-between items-center w-full mt-0.5 gap-1.5">
                 
                 <!-- Trophies -->
-                <div class="pixel-panel pixel-corners-sm flex-1 flex items-center justify-between px-2 h-9">
+                <div class="layer-fix relative flex-1 flex items-center justify-between px-2 h-9">
+                    <span class="notch" style="--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.6),inset 2px 2px 0 rgba(120,180,255,.25);--n:2px;"></span>
                     <div class="flex items-center gap-1.5">
-                        <!-- Upgraded Trophy Icon -->
                         <svg viewBox="0 0 12 12" class="w-4 h-4 pixel-art drop-shadow-[0_1px_0_rgba(0,0,0,1)] float-y">
                             <rect x="0" y="2" width="3" height="4" fill="#B45309"/>
                             <rect x="9" y="2" width="3" height="4" fill="#B45309"/>
@@ -393,11 +416,11 @@
                     </div>
                     <span class="text-[#FFC94A] text-[13px] font-bold tracking-wider pixel-text-thin">0</span>
                 </div>
- 
+
                 <!-- Coins -->
-                <div class="pixel-panel pixel-corners-sm flex-[1.2] flex items-center justify-between pl-2 pr-1 h-9">
+                <div class="layer-fix relative flex-[1.2] flex items-center justify-between pl-2 pr-1 h-9">
+                    <span class="notch" style="--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.6),inset 2px 2px 0 rgba(120,180,255,.25);--n:2px;"></span>
                     <div class="flex items-center gap-1.5">
-                        <!-- Upgraded Coin Icon -->
                         <svg viewBox="0 0 12 12" class="w-4 h-4 pixel-art drop-shadow-[0_1px_0_rgba(0,0,0,1)] float-y">
                             <rect x="3" y="0" width="6" height="12" fill="#92400E"/>
                             <rect x="0" y="3" width="12" height="6" fill="#92400E"/>
@@ -414,7 +437,6 @@
                         </svg>
                         <span class="text-[#FFC94A] text-[13px] font-bold tracking-wider pixel-text-thin">3,000</span>
                     </div>
-                    <!-- 3D Add Button -->
                     <button class="bg-gradient-to-b from-[#4ADE80] to-[#16A34A] border-b-[3px] border-[#14532D] w-[22px] h-[22px] pixel-corners-sm flex items-center justify-center active:translate-y-[3px] active:border-b-0 transition-all">
                         <svg viewBox="0 0 8 8" class="w-[10px] h-[10px] pixel-art drop-shadow-[0_1px_0_rgba(0,0,0,0.3)]">
                             <rect x="3" y="0" width="2" height="8" fill="#FFF"/>
@@ -422,11 +444,11 @@
                         </svg>
                     </button>
                 </div>
- 
+
                 <!-- Gems -->
-                <div class="pixel-panel pixel-corners-sm flex-[1.2] flex items-center justify-between pl-2 pr-1 h-9 relative overflow-visible">
+                <div class="layer-fix flex-[1.2] flex items-center justify-between pl-2 pr-1 h-9 relative overflow-visible">
+                    <span class="notch" style="--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.6),inset 2px 2px 0 rgba(120,180,255,.25);--n:2px;"></span>
                     <div class="flex items-center gap-1.5 relative">
-                        <!-- Upgraded Gem Icon -->
                         <svg viewBox="0 0 12 12" class="w-4 h-4 pixel-art drop-shadow-[0_1px_0_rgba(0,0,0,1)] float-y">
                             <rect x="3" y="0" width="6" height="1" fill="#4C1D95"/>
                             <rect x="1" y="1" width="10" height="4" fill="#4C1D95"/>
@@ -451,7 +473,6 @@
                         </svg>
                         <span class="text-[#FFC94A] text-[13px] font-bold tracking-wider pixel-text-thin">100</span>
                     </div>
-                    <!-- 3D Add Button -->
                     <button class="bg-gradient-to-b from-[#4ADE80] to-[#16A34A] border-b-[3px] border-[#14532D] w-[22px] h-[22px] pixel-corners-sm flex items-center justify-center active:translate-y-[3px] active:border-b-0 transition-all">
                         <svg viewBox="0 0 8 8" class="w-[10px] h-[10px] pixel-art drop-shadow-[0_1px_0_rgba(0,0,0,0.3)]">
                             <rect x="3" y="0" width="2" height="8" fill="#FFF"/>
@@ -459,49 +480,67 @@
                         </svg>
                     </button>
                 </div>
- 
+
             </div>
         </div>
         
-        <!-- Game Content Area and Bottom Menu -->
+        <!-- Game Content Area -->
         <div class="flex-1 w-full flex flex-col relative overflow-hidden">
             
-            <!-- Background element for main area -->
-            <div class="absolute inset-0 bg-gradient-to-b from-[#081A3E] to-[#020610] z-0">
-               <div class="absolute top-[10%] left-[20%] w-1 h-1 bg-white star" style="animation-delay:0s"></div>
-               <div class="absolute top-[30%] left-[80%] w-1 h-1 bg-[#5EEBFF] star" style="animation-delay:0.6s"></div>
-               <div class="absolute top-[70%] left-[30%] w-1 h-1 bg-white star" style="animation-delay:1.2s"></div>
-               <div class="absolute top-[50%] left-[60%] w-1 h-1 bg-[#FFC94A] star" style="animation-delay:1.8s"></div>
-               <div class="absolute top-[20%] left-[45%] w-1 h-1 bg-white star" style="animation-delay:0.3s"></div>
-               <div class="absolute top-[60%] left-[85%] w-1 h-1 bg-white star" style="animation-delay:1.5s"></div>
+            <!-- Detailed Mid-Field Pixel Background -->
+            <div class="absolute inset-0 z-0 bg-[#16A34A] overflow-hidden flex justify-center items-center">
+                
+                <div class="w-[860px] field-perspective flex flex-col border-l-[4px] border-r-[4px] border-[rgba(255,255,255,0.9)] relative shadow-none">
+                    
+                    <!-- Hash Marks Columns -->
+                    <div class="absolute top-0 bottom-0 left-[35%] hash-column z-10"></div>
+                    <div class="absolute top-0 bottom-0 right-[35%] hash-column z-10"></div>
+                    <div class="absolute top-0 bottom-0 left-0 hash-column w-[6px] z-10"></div>
+                    <div class="absolute top-0 bottom-0 right-0 hash-column w-[6px] z-10"></div>
+
+                    <!-- Field Segments (No Numbers) -->
+                    <div class="yard-segment dark"><div class="grass-texture"></div></div>
+                    <div class="yard-segment light"><div class="grass-texture"></div></div>
+                    <div class="yard-segment dark"><div class="grass-texture"></div></div>
+                    <div class="yard-segment light"><div class="grass-texture"></div></div>
+                    
+                    <!-- 50 Yard Segment (Midfield) -->
+                    <div class="yard-segment dark fifty-line relative">
+                        <div class="grass-texture"></div>
+                    </div>
+                    
+                    <div class="yard-segment light"><div class="grass-texture"></div></div>
+                    <div class="yard-segment dark"><div class="grass-texture"></div></div>
+                    <div class="yard-segment light"><div class="grass-texture"></div></div>
+                    <div class="yard-segment dark border-b-0"><div class="grass-texture"></div></div>
+
+                </div>
             </div>
- 
-            <!-- Quick-Access Buttons (Daily Reward / Missions) -->
-            <div class="absolute top-3 left-2 z-30 flex flex-col gap-2.5">
- 
+            
+            <!-- Dark gradient overlays to blend UI over the scene -->
+            <div class="absolute inset-0 bg-gradient-to-t from-[#020610] via-transparent to-transparent z-10 opacity-70 pointer-events-none"></div>
+
+            <!-- Quick-Access Buttons -->
+            <div class="absolute top-[140px] left-2 z-30 flex flex-col gap-2.5 layer-fix">
+
                 <!-- Daily Reward Button -->
-                <button class="w-[72px] pixel-panel pixel-corners border-[2px] border-[#0F2A5C] flex flex-col items-center py-2 relative active:scale-95 transition-transform group">
+                <button class="layer-fix w-[72px] flex flex-col items-center py-2 px-[2px] relative active:scale-95 transition-transform group">
+                    <span class="notch" style="--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.6),inset 2px 2px 0 rgba(120,180,255,.25);"></span>
                     <div class="relative w-11 h-11 flex items-center justify-center mb-1">
                         <div class="floor-shadow" style="width:70%;bottom:0px;"></div>
                         <div class="icon-bob-wrap w-11 h-11 flex items-center justify-center" style="animation-delay:0.1s">
                             <svg viewBox="0 0 16 16" class="w-11 h-11 pixel-art drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)] group-active:scale-95 transition-transform">
-                                <!-- Extrusion -->
                                 <rect x="1.6" y="5.6" width="13" height="9" fill="#0A1E42"/>
-                                <!-- Box outline -->
                                 <rect x="1" y="5" width="13" height="9" fill="#0F172A"/>
-                                <!-- Box face -->
                                 <rect x="2" y="6" width="11" height="7" fill="#2563EB"/>
                                 <rect x="11" y="6" width="1" height="7" fill="#1D4ED8"/>
                                 <rect x="2" y="12" width="11" height="1" fill="#1D4ED8"/>
                                 <rect x="2" y="6" width="11" height="1" fill="#60A5FA"/>
-                                <!-- Lid -->
                                 <rect x="0" y="4" width="16" height="2" fill="#0F172A"/>
                                 <rect x="1" y="4" width="14" height="1" fill="#3B82F6"/>
                                 <rect x="1" y="5" width="14" height="0.6" fill="#1D4ED8"/>
-                                <!-- Ribbon -->
                                 <rect x="7" y="6" width="2" height="7" fill="#93C5FD"/>
                                 <rect x="7" y="4" width="2" height="2" fill="#93C5FD"/>
-                                <!-- Bow -->
                                 <rect x="4" y="1" width="3" height="3" fill="#60A5FA"/>
                                 <rect x="9" y="1" width="3" height="3" fill="#60A5FA"/>
                                 <rect x="5" y="2" width="1" height="1" fill="#DBEAFE"/>
@@ -510,27 +549,23 @@
                             </svg>
                         </div>
                     </div>
-                    <span class="text-white text-[10px] font-bold leading-tight text-center pixel-text-thin">Daily<br>Reward</span>
+                    <span class="relative text-white text-[10px] font-bold leading-tight text-center pixel-text-thin">Daily<br>Reward</span>
                 </button>
- 
+
                 <!-- Missions Button -->
-                <button class="w-[72px] pixel-panel pixel-corners border-[2px] border-[#0F2A5C] flex flex-col items-center py-2 relative active:scale-95 transition-transform group">
+                <button class="layer-fix w-[72px] flex flex-col items-center py-2 px-[2px] relative active:scale-95 transition-transform group">
+                    <span class="notch" style="--fill:linear-gradient(180deg,#0E2249,#0B1938);--shA:inset -2px -2px 0 rgba(0,0,0,.6),inset 2px 2px 0 rgba(120,180,255,.25);"></span>
                     <div class="relative w-11 h-11 flex items-center justify-center mb-1">
                         <div class="floor-shadow" style="width:70%;bottom:0px;"></div>
                         <div class="icon-bob-wrap w-11 h-11 flex items-center justify-center" style="animation-delay:0.4s">
                             <svg viewBox="0 0 16 18" class="w-11 h-11 pixel-art drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)] group-active:scale-95 transition-transform">
-                                <!-- Extrusion -->
                                 <rect x="1.6" y="2.6" width="13" height="15" fill="#0A1E42"/>
-                                <!-- Clip -->
                                 <rect x="6" y="0" width="4" height="3" fill="#93C5FD"/>
                                 <rect x="7" y="0" width="2" height="1" fill="#EFF6FF"/>
-                                <!-- Board outline -->
                                 <rect x="1" y="2" width="13" height="15" fill="#0F172A"/>
-                                <!-- Board face -->
                                 <rect x="2" y="3" width="11" height="13" fill="#F8FAFC"/>
                                 <rect x="11" y="3" width="1" height="13" fill="#CBD5E1"/>
                                 <rect x="2" y="15" width="11" height="1" fill="#CBD5E1"/>
-                                <!-- Checklist rows -->
                                 <rect x="4" y="6" width="2" height="2" fill="#1D4ED8"/>
                                 <rect x="7" y="6" width="4" height="1" fill="#93C5FD"/>
                                 <rect x="4" y="9" width="2" height="2" fill="#1D4ED8"/>
@@ -540,159 +575,127 @@
                             </svg>
                         </div>
                     </div>
-                    <span class="text-white text-[10px] font-bold leading-tight text-center pixel-text-thin">Missions</span>
+                    <span class="relative text-white text-[10px] font-bold leading-tight text-center pixel-text-thin">Missions</span>
                 </button>
- 
+
             </div>
- 
-            <!-- Scrollable or stretchable middle game area -->
-            <div class="flex-1 z-10 flex justify-center items-center">
-                 <span class="text-[#2A4A85] font-bold text-lg tracking-widest pixel-text-thin">(GAME AREA)</span>
+
+            <div id="ball-zone" class="relative flex-1 z-20 flex justify-center items-center pointer-events-none">
+                 <!-- Football resting on the grass -->
+                 <div id="ball" class="relative w-14 h-9 flex items-center justify-center pointer-events-auto cursor-pointer" style="-webkit-tap-highlight-color:transparent;touch-action:manipulation;">
+                     <div class="absolute" style="inset:-30px;"></div>
+                     <!-- contact shadow on the turf -->
+                     <div id="ball-shadow" class="absolute left-1/2 bottom-[3px] w-[46px] h-[11px] rounded-[50%]" style="transform:translateX(-45%);background:radial-gradient(ellipse at center,rgba(0,0,0,0.85) 0%,rgba(0,0,0,0.6) 45%,rgba(0,0,0,0) 75%);"></div>
+                     <svg id="ball-body" viewBox="0 0 20 12" class="w-10 h-6 pixel-art relative" style="transform:translateY(-3px) rotate(-8deg)"><rect x="5" y="0" width="10" height="1" fill="#1F0F05"/><rect x="3" y="1" width="14" height="1" fill="#1F0F05"/><rect x="2" y="2" width="16" height="1" fill="#1F0F05"/><rect x="1" y="3" width="18" height="1" fill="#1F0F05"/><rect x="0" y="4" width="20" height="1" fill="#1F0F05"/><rect x="0" y="5" width="20" height="1" fill="#1F0F05"/><rect x="0" y="6" width="20" height="1" fill="#1F0F05"/><rect x="0" y="7" width="20" height="1" fill="#1F0F05"/><rect x="1" y="8" width="18" height="1" fill="#1F0F05"/><rect x="2" y="9" width="16" height="1" fill="#1F0F05"/><rect x="3" y="10" width="14" height="1" fill="#1F0F05"/><rect x="5" y="11" width="10" height="1" fill="#1F0F05"/><rect x="4" y="1" width="12" height="1" fill="#D97706"/><rect x="3" y="2" width="14" height="1" fill="#D97706"/><rect x="2" y="3" width="16" height="1" fill="#B45309"/><rect x="1" y="4" width="18" height="1" fill="#B45309"/><rect x="1" y="5" width="18" height="1" fill="#B45309"/><rect x="1" y="6" width="18" height="1" fill="#B45309"/><rect x="1" y="7" width="18" height="1" fill="#92400E"/><rect x="2" y="8" width="16" height="1" fill="#92400E"/><rect x="3" y="9" width="14" height="1" fill="#92400E"/><rect x="4" y="10" width="12" height="1" fill="#78350F"/><rect x="4" y="2" width="1" height="8" fill="#F8FAFC"/><rect x="15" y="2" width="1" height="8" fill="#F8FAFC"/><rect x="5" y="3" width="1" height="6" fill="#CBD5E1"/><rect x="14" y="3" width="1" height="6" fill="#CBD5E1"/><rect x="6" y="5" width="8" height="1" fill="#F8FAFC"/><rect x="7" y="3" width="1" height="5" fill="#F8FAFC"/><rect x="9" y="3" width="1" height="5" fill="#F8FAFC"/><rect x="11" y="3" width="1" height="5" fill="#F8FAFC"/></svg>
+                 </div>
             </div>
- 
+
             <!-- BOTTOM MENU SECTION -->
-            <div class="w-full p-2 pb-6 flex flex-col gap-2 z-20 relative">
+            <div class="w-full p-2 pb-6 flex flex-col gap-2 z-30 relative layer-fix">
                 
-                <!-- Fade gradient behind the menu -->
-                <div class="absolute inset-0 bg-gradient-to-t from-[#010612] via-[#03112E] to-transparent -z-10 pointer-events-none pb-10"></div>
- 
+                <div class="absolute inset-0 bg-gradient-to-t from-[#010612] via-[rgba(3,17,46,0.9)] to-transparent -z-10 pointer-events-none pb-10"></div>
+
                 <!-- 3 Navigation Cards Row -->
                 <div class="flex w-full gap-2 h-[100px]">
                     
                     <!-- Playbook Card -->
-                    <button class="flex-1 bg-[#061433] pixel-corners border-[2px] border-[#0A2254] flex flex-col overflow-hidden shadow-[inset_0_0_0_1px_#5EEBFF,0_4px_6px_rgba(0,0,0,0.6)] active:translate-y-[2px] active:shadow-[inset_0_0_0_1px_#5EEBFF] transition-all group">
-                        <!-- Lowered the icon slightly using pt-2 instead of pb-1 -->
-                        <div class="h-3/5 w-full bg-[#05112B] relative flex justify-center items-center pt-2 border-b-[2px] border-[#040C1F] group-hover:bg-[#071638] transition-colors">
-                            <!-- High Detail Playbook/Tactics Board SVG (Reduced shadow to feel less floating) -->
+                    <button class="layer-fix flex-1 relative flex flex-col p-[2px] active:translate-y-[2px] transition-transform group">
+                        <span class="notch" style="--fill:linear-gradient(180deg,#0E2249 60px,#09152E 60px);--fillB:linear-gradient(180deg,#0E2249 56px,#09152E 56px);--shA:inset 0 0 0 1px #5EEBFF;--shB:inset 1px 0 0 #5EEBFF,inset -1px 0 0 #5EEBFF;"></span>
+                        <div class="h-3/5 w-full relative flex justify-center items-center pt-2 border-b-[2px] border-[#0A1A3A]">
                             <div class="relative w-14 h-14 flex items-center justify-center">
                                 <div class="floor-shadow"></div>
                                 <div class="icon-bob-wrap w-14 h-14 flex items-center justify-center" style="animation-delay:0s">
                                     <svg viewBox="0 0 18 20" class="w-14 h-14 pixel-art drop-shadow-[0_3px_2px_rgba(0,0,0,0.5)] group-active:scale-95 transition-transform glow-pulse">
-                                        <!-- Extrusion / depth shadow (offset, fakes a 3D side) -->
                                         <rect x="2.6" y="4.6" width="14" height="14" fill="#0D0704"/>
                                         <rect x="6.6" y="1.6" width="4" height="4" fill="#0D0704"/>
-                                        <!-- Board outline -->
                                         <rect x="1" y="3" width="14" height="14" fill="#1F130A"/>
-                                        <!-- Board face -->
                                         <rect x="2" y="4" width="12" height="12" fill="#A16207"/>
-                                        <!-- Right + bottom bevel (dark edge = extrusion thickness) -->
                                         <rect x="13" y="4" width="1" height="12" fill="#78350F"/>
                                         <rect x="2" y="15" width="12" height="1" fill="#78350F"/>
-                                        <!-- Top bevel highlight -->
                                         <rect x="2" y="4" width="12" height="1" fill="#EAB308"/>
                                         <rect x="2" y="4" width="1" height="12" fill="#CA8A04"/>
-                                        <!-- Metal clip -->
                                         <rect x="5" y="3" width="6" height="2" fill="#64748B"/>
                                         <rect x="6" y="0" width="4" height="4" fill="#CBD5E1"/>
                                         <rect x="9" y="0" width="1" height="4" fill="#64748B"/>
                                         <rect x="7" y="0" width="2" height="1" fill="#F8FAFC"/>
-                                        <!-- Paper outline -->
                                         <rect x="3" y="6" width="10" height="9" fill="#1F130A"/>
-                                        <!-- Paper face -->
                                         <rect x="4" y="7" width="8" height="7" fill="#F8FAFC"/>
                                         <rect x="11" y="7" width="1" height="7" fill="#CBD5E1"/>
                                         <rect x="4" y="13" width="8" height="1" fill="#CBD5E1"/>
-                                        <!-- Yard lines -->
                                         <rect x="4" y="9" width="8" height="1" fill="#93C5FD"/>
                                         <rect x="4" y="11" width="8" height="1" fill="#93C5FD"/>
-                                        <!-- Route arrow -->
                                         <rect x="6" y="10" width="1" height="1" fill="#2563EB"/>
                                         <rect x="7" y="9" width="1" height="1" fill="#2563EB"/>
                                         <rect x="8" y="9" width="1" height="1" fill="#2563EB"/>
-                                        <!-- Defender X marks -->
                                         <rect x="5" y="8" width="1" height="1" fill="#EF4444"/>
                                         <rect x="9" y="8" width="1" height="1" fill="#EF4444"/>
-                                        <!-- Offense marks -->
                                         <rect x="5" y="11" width="1" height="1" fill="#0F172A"/>
                                         <rect x="9" y="11" width="1" height="1" fill="#0F172A"/>
                                     </svg>
                                 </div>
                             </div>
                         </div>
-                        <div class="h-2/5 w-full bg-[#081B45] p-1.5 flex flex-col justify-center relative">
+                        <div class="h-2/5 w-full p-1.5 flex flex-col justify-center relative">
                             <span class="text-white pixel-text-thin text-[12px] font-bold leading-none tracking-wide text-left">PLAYBOOK</span>
                             <span class="text-[#5EEBFF] text-[9px] font-medium leading-tight text-left mt-0.5 drop-shadow-[0_1px_0_rgba(0,0,0,1)]">Edit your plays</span>
-                            <svg viewBox="0 0 6 10" class="w-1.5 h-2.5 absolute right-2 top-1/2 -translate-y-1/2 pixel-art">
-                                <rect x="0" y="0" width="2" height="2" fill="#5EEBFF"/><rect x="2" y="2" width="2" height="2" fill="#5EEBFF"/><rect x="4" y="4" width="2" height="2" fill="#5EEBFF"/><rect x="2" y="6" width="2" height="2" fill="#5EEBFF"/><rect x="0" y="8" width="2" height="2" fill="#5EEBFF"/>
-                            </svg>
                         </div>
                     </button>
- 
+
                     <!-- Customize Card -->
-                    <button class="flex-1 bg-[#061433] pixel-corners border-[2px] border-[#0A2254] flex flex-col overflow-hidden shadow-[inset_0_0_0_1px_#B383FF,0_4px_6px_rgba(0,0,0,0.6)] active:translate-y-[2px] active:shadow-[inset_0_0_0_1px_#B383FF] transition-all group">
-                        <!-- Lowered the stadium icon further to fix the visual gap -->
-                        <div class="h-3/5 w-full bg-[#05112B] relative flex justify-center items-center pt-3 border-b-[2px] border-[#040C1F] group-hover:bg-[#071638] transition-colors">
-                            <!-- High Detail Stadium SVG (Tightened shadow and translated Y to ground it) -->
+                    <button class="layer-fix flex-1 relative flex flex-col p-[2px] active:translate-y-[2px] transition-transform group">
+                        <span class="notch" style="--fill:linear-gradient(180deg,#0E2249 60px,#09152E 60px);--fillB:linear-gradient(180deg,#0E2249 56px,#09152E 56px);--shA:inset 0 0 0 1px #B383FF;--shB:inset 1px 0 0 #B383FF,inset -1px 0 0 #B383FF;"></span>
+                        <div class="h-3/5 w-full relative flex justify-center items-center pt-3 border-b-[2px] border-[#0A1A3A]">
                             <div class="relative w-14 h-14 flex items-center justify-center">
                                 <div class="floor-shadow"></div>
                                 <div class="icon-bob-wrap w-14 h-14 flex items-center justify-center" style="animation-delay:0.3s">
                                     <svg viewBox="0 0 20 16" class="w-14 h-14 pixel-art drop-shadow-[0_3px_2px_rgba(0,0,0,0.5)] group-active:scale-95 transition-transform glow-pulse">
-                                        <!-- Extrusion / depth shadow -->
                                         <rect x="1.6" y="9.6" width="18" height="4" fill="#01030A"/>
-                                        <!-- Ground shadow -->
                                         <rect x="2" y="13" width="16" height="1" fill="#020617"/>
-                                        <!-- Outer wall -->
                                         <rect x="1" y="9" width="18" height="4" fill="#64748B"/>
                                         <rect x="1" y="9" width="18" height="1" fill="#E2E8F0"/>
                                         <rect x="18" y="9" width="1" height="4" fill="#334155"/>
-                                        <!-- Entrance arches -->
                                         <rect x="4" y="10" width="2" height="3" fill="#1E293B"/>
                                         <rect x="9" y="10" width="2" height="3" fill="#1E293B"/>
                                         <rect x="14" y="10" width="2" height="3" fill="#1E293B"/>
-                                        <!-- Seating ring -->
                                         <rect x="3" y="7" width="14" height="2" fill="#DC2626"/>
                                         <rect x="3" y="7" width="14" height="1" fill="#F87171"/>
-                                        <!-- Field -->
                                         <rect x="5" y="8" width="10" height="2" fill="#16A34A"/>
                                         <rect x="5" y="8" width="10" height="1" fill="#4ADE80"/>
                                         <rect x="9" y="8" width="2" height="2" fill="#F8FAFC"/>
-                                        <!-- Light poles -->
                                         <rect x="2" y="2" width="1" height="5" fill="#475569"/>
                                         <rect x="17" y="2" width="1" height="5" fill="#475569"/>
                                         <rect x="1" y="1" width="3" height="1" fill="#FDE047"/>
                                         <rect x="16" y="1" width="3" height="1" fill="#FDE047"/>
-                                        <!-- Flags -->
                                         <rect x="4" y="3" width="2" height="2" fill="#EF4444"/>
                                         <rect x="14" y="3" width="2" height="2" fill="#3B82F6"/>
                                     </svg>
                                 </div>
                             </div>
                         </div>
-                        <div class="h-2/5 w-full bg-[#081B45] p-1.5 flex flex-col justify-center relative">
+                        <div class="h-2/5 w-full p-1.5 flex flex-col justify-center relative">
                             <span class="text-white pixel-text-thin text-[12px] font-bold leading-none tracking-wide text-left">CUSTOMIZE</span>
                             <span class="text-[#C9A8FF] text-[9px] font-medium leading-tight text-left mt-0.5 drop-shadow-[0_1px_0_rgba(0,0,0,1)]">Team • Stadium</span>
-                            <svg viewBox="0 0 6 10" class="w-1.5 h-2.5 absolute right-2 top-1/2 -translate-y-1/2 pixel-art">
-                                <rect x="0" y="0" width="2" height="2" fill="#C9A8FF"/><rect x="2" y="2" width="2" height="2" fill="#C9A8FF"/><rect x="4" y="4" width="2" height="2" fill="#C9A8FF"/><rect x="2" y="6" width="2" height="2" fill="#C9A8FF"/><rect x="0" y="8" width="2" height="2" fill="#C9A8FF"/>
-                            </svg>
                         </div>
                     </button>
- 
+
                     <!-- Store Card -->
-                    <button class="flex-1 bg-[#061433] pixel-corners border-[2px] border-[#0A2254] flex flex-col overflow-hidden shadow-[inset_0_0_0_1px_#FFC94A,0_4px_6px_rgba(0,0,0,0.6)] active:translate-y-[2px] active:shadow-[inset_0_0_0_1px_#FFC94A] transition-all group">
-                        <!-- Lowered the icon slightly using pt-2 instead of pb-1 -->
-                        <div class="h-3/5 w-full bg-[#05112B] relative flex justify-center items-center pt-2 border-b-[2px] border-[#040C1F] group-hover:bg-[#071638] transition-colors">
-                            <!-- High Detail Shop SVG (Reduced shadow to feel less floating) -->
+                    <button class="layer-fix flex-1 relative flex flex-col p-[2px] active:translate-y-[2px] transition-transform group">
+                        <span class="notch" style="--fill:linear-gradient(180deg,#0E2249 60px,#09152E 60px);--fillB:linear-gradient(180deg,#0E2249 56px,#09152E 56px);--shA:inset 0 0 0 1px #FFC94A;--shB:inset 1px 0 0 #FFC94A,inset -1px 0 0 #FFC94A;"></span>
+                        <div class="h-3/5 w-full relative flex justify-center items-center pt-2 border-b-[2px] border-[#0A1A3A]">
                             <div class="relative w-14 h-14 flex items-center justify-center">
                                 <div class="floor-shadow"></div>
                                 <div class="icon-bob-wrap w-14 h-14 flex items-center justify-center" style="animation-delay:0.6s">
                                     <svg viewBox="0 0 16 18" class="w-14 h-14 pixel-art drop-shadow-[0_3px_2px_rgba(0,0,0,0.5)] group-active:scale-95 transition-transform glow-pulse">
-                                        <!-- Extrusion / depth shadow -->
                                         <rect x="1.6" y="4.6" width="14" height="13" fill="#2E0A4D"/>
-                                        <!-- Handle -->
                                         <rect x="5" y="1" width="1" height="3" fill="#451A03"/>
                                         <rect x="10" y="1" width="1" height="3" fill="#451A03"/>
                                         <rect x="6" y="0" width="4" height="1" fill="#451A03"/>
-                                        <!-- Bag outline/shadow -->
                                         <rect x="1" y="4" width="14" height="13" fill="#581C87"/>
-                                        <!-- Bag face -->
                                         <rect x="2" y="5" width="12" height="11" fill="#9333EA"/>
-                                        <!-- Right + bottom bevel (extrusion thickness) -->
                                         <rect x="13" y="5" width="1" height="11" fill="#6B21A8"/>
                                         <rect x="2" y="15" width="12" height="1" fill="#6B21A8"/>
-                                        <!-- Top gloss highlight -->
                                         <rect x="2" y="5" width="12" height="2" fill="#C084FC"/>
                                         <rect x="2" y="7" width="12" height="1" fill="#7E22CE"/>
-                                        <!-- Coin badge -->
                                         <rect x="5" y="9" width="6" height="6" fill="#B45309"/>
                                         <rect x="6" y="10" width="4" height="4" fill="#FDE047"/>
                                         <rect x="6" y="10" width="2" height="1" fill="#FEF3C7"/>
@@ -701,37 +704,25 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="h-2/5 w-full bg-[#081B45] p-1.5 flex flex-col justify-center relative">
+                        <div class="h-2/5 w-full p-1.5 flex flex-col justify-center relative">
                             <span class="text-white pixel-text-thin text-[12px] font-bold leading-none tracking-wide text-left">STORE</span>
                             <span class="text-[#FFD976] text-[9px] font-medium leading-tight text-left mt-0.5 drop-shadow-[0_1px_0_rgba(0,0,0,1)]">Buy packs & items</span>
-                            <svg viewBox="0 0 6 10" class="w-1.5 h-2.5 absolute right-2 top-1/2 -translate-y-1/2 pixel-art">
-                                <rect x="0" y="0" width="2" height="2" fill="#FFD976"/><rect x="2" y="2" width="2" height="2" fill="#FFD976"/><rect x="4" y="4" width="2" height="2" fill="#FFD976"/><rect x="2" y="6" width="2" height="2" fill="#FFD976"/><rect x="0" y="8" width="2" height="2" fill="#FFD976"/>
-                            </svg>
                         </div>
                     </button>
                 </div>
- 
-                <!-- Season Banner (Redesigned with Center QB and Shine) -->
+
+                <!-- Season Banner -->
                 <button class="w-full h-[85px] mt-1 pixel-corners border-[2px] border-[#8640BA] overflow-hidden relative shadow-[0_6px_12px_rgba(0,0,0,0.6),inset_0_0_0_1px_#D283FF] active:scale-[0.98] transition-transform text-left group">
-                    
-                    <!-- Dynamic Sunset Gradient Background -->
                     <div class="absolute inset-0 bg-gradient-to-r from-[#1E0F45] via-[#632270] to-[#E15A46] z-0"></div>
-                    
-                    <!-- Shine Effect Animation -->
                     <div class="shine-layer"></div>
-                    
-                    <!-- Pixel mountains/city silhouette in background -->
                     <div class="absolute bottom-0 right-0 w-[60%] h-full opacity-40 z-0">
                          <svg viewBox="0 0 100 40" class="w-full h-full pixel-art" preserveAspectRatio="none">
                              <path fill="#0F0524" d="M0 25h10v15H0z M10 20h15v20H10z M25 15h10v25H25z M35 22h15v18H35z M50 10h15v30H50z M65 18h20v22H65z M85 25h15v15H85z"/>
                          </svg>
                     </div>
- 
-                    <!-- Centered Player Layer -->
-                    <!-- Positioned absolutely in the center to create 3D overlap with text -->
+
                     <div class="absolute inset-0 z-10 flex justify-center items-end pb-0 pointer-events-none">
                         <svg viewBox="0 0 40 40" class="w-[85px] h-[85px] pixel-art drop-shadow-[-4px_4px_0_rgba(0,0,0,0.7)] translate-y-[2px]">
-                            <!-- Player Art Details -->
                             <path fill="#020617" d="M12 4h14v2h2v10h-1v2h2v4h-1v4h1v10H9V24h1v-6H8v-4h2V6h2V4z M28 20h4v2h2v6h-4v2h-4v-2h-1v-4h1v-4z"/>
                             <path fill="#1E3A8A" d="M14 6h10v2h2v6h-1v2h-3v2h-8v-2h-2V8h2V6z"/>
                             <path fill="#0F172A" d="M14 8h2v6h-2z M22 14h2v2h-2z"/>
@@ -754,18 +745,11 @@
                             <path fill="#FFFFFF" d="M29 19h1v3h-1z M28 20h3v1h-3z"/>
                         </svg>
                     </div>
- 
-                    <!-- Main Content Grid (Layered over the QB) -->
+
                     <div class="absolute inset-0 z-20 flex items-center justify-between p-2 pl-3 pointer-events-none">
-                        
-                        <!-- Left Side: Text and Progress -->
                         <div class="flex flex-col h-full justify-between py-1 w-[55%] pointer-events-auto">
-                            
-                            <!-- Title Area -->
                             <div class="flex items-start gap-1.5">
-                                <!-- Flawless Rebuilt Pixel Star -->
                                 <svg viewBox="0 0 15 15" class="w-8 h-8 pixel-art drop-shadow-[0_2px_0_rgba(0,0,0,0.8)] shrink-0">
-                                    <!-- Outline -->
                                     <rect x="7" y="0" width="1" height="2" fill="#451A03"/><rect x="6" y="2" width="3" height="1" fill="#451A03"/>
                                     <rect x="5" y="3" width="5" height="1" fill="#451A03"/><rect x="0" y="4" width="15" height="1" fill="#451A03"/>
                                     <rect x="1" y="5" width="13" height="1" fill="#451A03"/><rect x="2" y="6" width="11" height="1" fill="#451A03"/>
@@ -776,7 +760,6 @@
                                     <rect x="12" y="12" width="3" height="1" fill="#451A03"/><rect x="0" y="13" width="2" height="1" fill="#451A03"/>
                                     <rect x="13" y="13" width="2" height="1" fill="#451A03"/><rect x="0" y="14" width="1" height="1" fill="#451A03"/>
                                     <rect x="14" y="14" width="1" height="1" fill="#451A03"/>
-                                    <!-- Inner Gold/Highlights -->
                                     <rect x="7" y="2" width="1" height="1" fill="#FDE047"/><rect x="6" y="3" width="3" height="1" fill="#FDE047"/>
                                     <rect x="1" y="4" width="13" height="1" fill="#F59E0B"/><rect x="6" y="4" width="2" height="1" fill="#FDE047"/>
                                     <rect x="2" y="5" width="11" height="1" fill="#F59E0B"/><rect x="6" y="5" width="2" height="1" fill="#FDE047"/>
@@ -794,8 +777,7 @@
                                     <span class="text-white text-[16px] font-bold leading-none tracking-wide pixel-text">RISING STARS</span>
                                 </div>
                             </div>
- 
-                            <!-- Progress Bar Area -->
+
                             <div class="flex items-end gap-1.5 w-[95%] mt-2">
                                 <svg viewBox="0 0 10 12" class="w-4 h-5 pixel-art drop-shadow-[0_1px_0_rgba(0,0,0,1)] shrink-0 mb-[1px]">
                                     <path fill="#0F172A" d="M1 0h8v1h1v7h-1v2h-1v1h-2v1h-2v-1H2v-1H1V8H0V1h1V0z"/>
@@ -804,21 +786,18 @@
                                 </svg>
                                 <div class="flex flex-col w-full gap-0.5">
                                     <div class="w-full h-[7px] bg-[#0A1128] border border-[#000] relative overflow-hidden shadow-[0_1px_0_rgba(255,255,255,0.15)]">
-                                        <!-- Corrected to 10% fill -->
                                         <div class="absolute top-0 left-0 h-full w-[10%] bg-gradient-to-r from-[#0369A1] to-[#5EEBFF] border-t border-[#B9F5FF] shadow-[2px_0_6px_rgba(94,235,255,0.7)]">
                                             <div class="absolute inset-0 bar-stripes"></div>
                                         </div>
                                     </div>
                                     <div class="flex justify-between w-full">
-                                        <!-- Corrected to Rookie I and 10/100 -->
                                         <span class="text-[#E2E8F0] text-[9px] font-bold drop-shadow-[0_1px_0_rgba(0,0,0,1)]">Rookie I</span>
                                         <span class="text-[#E2E8F0] text-[9px] font-bold drop-shadow-[0_1px_0_rgba(0,0,0,1)]">10 / 100</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
- 
-                        <!-- Right Side: Button -->
+
                         <div class="h-full flex flex-col justify-end items-end pb-1 pr-1 w-[45%] pointer-events-auto">
                             <div class="bg-gradient-to-b from-[#3D1E6A] to-[#2D164E] border-[2px] border-[#B383FF] pixel-corners-sm px-2 py-1.5 flex items-center gap-1 shadow-[inset_0_0_0_1px_#8640BA,0_4px_6px_rgba(0,0,0,0.5)] hover:brightness-110 transition-all mb-1 cursor-pointer">
                                 <span class="text-white text-[9px] font-bold tracking-widest pixel-text-thin uppercase">Season Rewards</span>
@@ -829,14 +808,12 @@
                         </div>
                     </div>
                 </button>
- 
+
             </div>
         </div>
     </div>
- 
+
     <script>
-        // Dynamically inject the PWA Web Manifest as a Data URI 
-        // (Allows us to keep everything in one file!)
         const manifestData = {
             "name": "Pixel Game",
             "short_name": "PixelGame",
@@ -853,14 +830,120 @@
                 }
             ]
         };
- 
-        // Convert manifest to blob and create URL
+
         const manifestString = JSON.stringify(manifestData);
         const blob = new Blob([manifestString], {type: 'application/json'});
         const manifestURL = URL.createObjectURL(blob);
-        
-        // Attach to DOM
         document.getElementById('manifest-placeholder').setAttribute('href', manifestURL);
+    </script>
+
+    <script>
+    // Tap the football: it hops to a random spot on the field, spinning, and settles with a tiny bounce.
+    (function () {
+        const zone = document.getElementById('ball-zone');
+        const ball = document.getElementById('ball');
+        const body = document.getElementById('ball-body');
+        const shadow = document.getElementById('ball-shadow');
+        if (!zone || !ball || !body || !shadow) return;
+
+        let x = 0, y = 0, rot = -8, busy = false;   // x/y = offset from resting spot at zone centre
+
+        function draw(h, r) {
+            ball.style.transform = 'translate(' + x + 'px,' + y + 'px)';
+            body.style.transform = 'translateY(' + (-3 - h) + 'px) rotate(' + r + 'deg)';
+            const k = 1 - Math.min(h / 100, 1) * 0.5;          // shadow shrinks + fades as ball rises
+            shadow.style.transform = 'translateX(-45%) scale(' + k + ')';
+            shadow.style.opacity = String(0.35 + 0.65 * k);
+        }
+
+        const GRASS = ['#86EFAC', '#4ADE80', '#22C55E', '#16A34A', '#15803D', '#78350F'];
+
+        // Little pixel-y grass/dirt clippings kicked up from the turf
+        function burst(cx, cy, count, power) {
+            const ps = [];
+            for (let i = 0; i < count; i++) {
+                const size = Math.random() < 0.5 ? 3 : 4;
+                const el = document.createElement('div');
+                el.style.cssText = 'position:absolute;pointer-events:none;z-index:1;width:' + size + 'px;height:' + size + 'px;background:' +
+                    GRASS[Math.floor(Math.random() * GRASS.length)] + ';left:0;top:0;';
+                zone.appendChild(el);
+                ps.push({
+                    el: el, x: cx, y: cy,
+                    vx: (Math.random() - 0.5) * 220 * power,
+                    vy: -(70 + Math.random() * 130) * power,
+                    life: 420 + Math.random() * 280
+                });
+            }
+            const t0 = performance.now();
+            let last = t0;
+            (function frame(now) {
+                const dt = Math.min((now - last) / 1000, 0.05);
+                last = now;
+                let alive = 0;
+                ps.forEach(function (p) {
+                    const age = now - t0;
+                    if (age >= p.life) { if (p.el) { p.el.remove(); p.el = null; } return; }
+                    alive++;
+                    p.vy += 620 * dt;
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    if (p.y > cy + 4) { p.y = cy + 4; p.vy = 0; p.vx *= 0.6; }   // settle on the grass
+                    p.el.style.transform = 'translate(' + Math.round(p.x) + 'px,' + Math.round(p.y) + 'px)';
+                    p.el.style.opacity = age > p.life * 0.6 ? String(1 - (age - p.life * 0.6) / (p.life * 0.4)) : '1';
+                });
+                if (alive) requestAnimationFrame(frame);
+            })(t0);
+        }
+
+        function run(duration, step, done) {
+            const t0 = performance.now();
+            (function frame(now) {
+                const t = Math.min((now - t0) / duration, 1);
+                step(t);
+                if (t < 1) requestAnimationFrame(frame); else if (done) done();
+            })(t0);
+        }
+
+        ball.addEventListener('pointerdown', function (e) {
+            e.preventDefault();
+            if (busy) return;
+            busy = true;
+
+            const r = zone.getBoundingClientRect();
+            const zw = r.width, zh = r.height;
+            // keep the ball clear of the top bar, the left buttons and the bottom menu
+            const minX = 100, maxX = Math.max(minX + 1, zw - 40);
+            const minY = 150, maxY = Math.max(minY + 1, zh - 35);
+
+            let tx, ty, tries = 0;
+            do {
+                tx = minX + Math.random() * (maxX - minX);
+                ty = minY + Math.random() * (maxY - minY);
+                tries++;
+            } while (Math.hypot(tx - zw / 2 - x, ty - zh / 2 - y) < 60 && tries < 25);
+
+            const x0 = x, y0 = y, x1 = tx - zw / 2, y1 = ty - zh / 2;
+            burst(zw / 2 + x0, zh / 2 + y0 + 10, 12, 1.1);         // grass kicked up on tap
+            const dist = Math.hypot(x1 - x0, y1 - y0);
+            const H = Math.max(60, Math.min(120, 50 + dist * 0.3));       // jump height
+            const dur = Math.max(600, Math.min(1000, 500 + dist * 1.2));   // hang time
+            const spins = (Math.random() < 0.5 ? -1 : 1) * (1 + Math.floor(Math.random() * 2));
+            const rEnd = Math.random() * 44 - 22;                          // final resting tilt
+            const r0 = rot, r1 = spins * 360 + rEnd;
+
+            run(dur, function (t) {
+                x = x0 + (x1 - x0) * t;
+                y = y0 + (y1 - y0) * t;
+                const ease = 1 - Math.pow(1 - t, 2);
+                draw(4 * H * t * (1 - t), r0 + (r1 - r0) * ease);
+            }, function () {
+                x = x1; y = y1; rot = rEnd;
+                run(220, function (t) {                                    // little landing bounce
+                    draw(4 * (H * 0.16) * t * (1 - t), rEnd + 7 * Math.sin(t * Math.PI));
+                }, function () { draw(0, rEnd); busy = false; });
+            });
+        }, { passive: false });
+    })();
     </script>
 </body>
 </html>
