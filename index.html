@@ -1627,7 +1627,7 @@ function createPlayerLayer(room) {
     let offPeers = null;
     function onOpponentPos(opp) {
         if (!opp) return;
-        const p = opp.pos;
+        const p = opp.presence && opp.presence.pos;
         if (p && typeof p.x === 'number' && typeof p.y === 'number') {
             oppTarget.x = Math.max(0, Math.min(100, p.x));
             oppTarget.y = Math.max(0, Math.min(100, p.y));
@@ -1799,4 +1799,4 @@ function createPlayerLayer(room) {
     })();
     </script>
 </body>
-</htmls
+</html>
