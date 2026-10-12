@@ -656,7 +656,7 @@
 
             myPeer = new Peer();
             myPeer.on('open', (id) => {
-                mpConnection = myPeer.connect('retro-fb-room-' + code);
+                mpConnection = myPeer.connect('retro-fb-room-' + code, { reliable: false, serialization: 'json' });
                 mpConnection.on('open', () => {
                     document.getElementById('join-status').innerText = "Connected! Starting game...";
                     document.getElementById('join-status').style.color = '#4ade80';
@@ -677,6 +677,8 @@
             isMultiplayer = true;
             isMpHost = host;
             isMpClient = !host;
+            window._mpSeq = 0; window._mpLastSeq = 0; window._mpPk = 0; window._mpLastGs = undefined;
+            window._mpKickPrev = false; window._mpClientKicks = false; window._lastUi = undefined;
             
             // Hardcode matchup for MP
             qpState.homeIdx = 1; qpState.awayIdx = 0;
@@ -763,27 +765,37 @@
         }
 
         // Multiplayer state serialization (Host -> Client)
-        function serializeState() {
+        // Compact array format (much smaller + faster to parse than keyed objects). Roster flags
+        // (team side, kicker, QB...) change rarely, so they ride along only on some packets.
+        function serializeState(withRoster) {
+            const r = v => Math.round((v || 0) * 100) / 100;
+            const b = v => v ? 1 : 0;
             let p2Idx = players.findIndex(p => p === p2Player);
-            return {
+            const out = {
+                q: (window._mpSeq = (window._mpSeq || 0) + 1),
                 gs: gameState, ps: playState, loc: lineOfScrimmage, fd: firstDownLine, od: offenseDirection,
-                dwn: down, qtr: quarter, clk: gameClock, pclk: playClock,
+                dwn: down, qtr: quarter, clk: r(gameClock), pclk: playClock,
                 scY: playerScore, scC: cpuScore,
-                b: { x: ball.x, y: ball.y, z: ball.z, vx: ball.vx, vy: ball.vy, vz: ball.vz, sa: ball.spinAngle, dP: ball.isDeadPass },
-                // EXACT CAMERA TARGET SYNC
-                c: { tx: camera.target ? camera.target.x : 60, ty: camera.target ? camera.target.y : 0, z: camera.zoom },
+                b: [r(ball.x), r(ball.y), r(ball.z), r(ball.spinAngle), b(ball.isDeadPass)],
+                c: [r(camera.target ? camera.target.x : 60), r(camera.target ? camera.target.y : 0), r(camera.zoom)],
                 ui: determineMpUIState(),
+                // Kick-play flags + kick meter (client needs these to draw/run the meter)
+                fg: b(isFieldGoalPlay), pat: b(isPAT), pnt: b(isPuntPlay),
+                mv: r(meterValue), dv: Math.round((dirValue || 0) * 1000) / 1000, md: r(Math.abs(meterDelta)),
                 tdShow: tdBanner.classList.contains('show'), tdM: tdBannerMain.textContent, tdS: tdBannerSub.textContent,
                 p2Idx: p2Idx,
-                pls: players.map(p => ({
-                    x: p.x, y: p.y, f: p.facing, a: p.animTimer, isD: p.isDiving, isT: p.isTackling, 
-                    isL: p.isLunging, isM: p.isMissedTackle, hb: p.hasBall, isB: p.isBlocking,
-                    isCPU: p.isCPU, isK: p.isKicker, isLnm: p.isLineman, isQB: p.isQB, isRet: p.isReturner, isMLB: p.isMLB,
-                    sT: p.skinTone, g: p.girth, tr: p.isTargetReceiver, int: p.isIntercepter, hO: p.hopOffset,
-                    dT: p.diveTimer, tT: p.tackleAnimTimer, tckT: p.tackleTimer, hdX: p.hitDirX, hdY: p.hitDirY
-                })),
-                refs: refs.map(r => ({ x: r.x, y: r.y, f: r.facing, a: r.animTimer, s: r.state, hF: r.hasFlag, id: r.id }))
+                pls: players.map(p => [
+                    r(p.x), r(p.y), p.facing, r(p.animTimer),
+                    (p.isDiving ? 1 : 0) | (p.isTackling ? 2 : 0) | (p.isLunging ? 4 : 0) | (p.isMissedTackle ? 8 : 0) |
+                    (p.hasBall ? 16 : 0) | (p.isBlocking ? 32 : 0) | (p.isTargetReceiver ? 64 : 0) | (p.isIntercepter ? 128 : 0),
+                    r(p.hopOffset), r(p.diveTimer), p.tackleAnimTimer || 0, p.tackleTimer || 0, r(p.hitDirX), r(p.hitDirY)
+                ]),
+                refs: refs.map(f => [r(f.x), r(f.y), f.facing, r(f.animTimer), f.state, b(f.hasFlag), f.id])
             };
+            if (withRoster) {
+                out.ros = players.map(p => [b(p.isCPU), b(p.isKicker), b(p.isLineman), b(p.isQB), b(p.isReturner), b(p.isMLB), p.skinTone, r(p.girth)]);
+            }
+            return out;
         }
 
         // Multiplayer UI Synchronization (Client only)
@@ -831,15 +843,7 @@
                 }
             }
             
-            // Kicking
-            else if (uiState === 'CLIENT_KICKING') {
-                if (gameState !== 'KICK_POWER' && gameState !== 'KICK_DIR') {
-                    // Force the local state so the client handles the meter visually
-                    gameState = 'KICK_POWER';
-                    meterValue = 0;
-                    meterDelta = 1.8;
-                }
-            }
+            // Kicking: the client's local kick meter is started in syncStateFromHost (once per kick)
         }
 
         window.mpClientMakeChoice = function(choice) {
@@ -861,7 +865,27 @@
         }
 
         // Multiplayer state deserialization (Client receives)
+        function applyMpRoster(ros) {
+            for (let i = 0; i < ros.length && i < players.length; i++) {
+                const ro = ros[i], p = players[i];
+                p.isCPU = !!ro[0]; p.isKicker = !!ro[1]; p.isLineman = !!ro[2]; p.isQB = !!ro[3];
+                p.isReturner = !!ro[4]; p.isMLB = !!ro[5]; p.skinTone = ro[6]; p.girth = ro[7];
+            }
+        }
+
         function syncStateFromHost(data) {
+            // Drop stale / out-of-order packets (the channel is unordered so it never stalls behind a lost packet)
+            if (data.q !== undefined) {
+                if (data.q <= (window._mpLastSeq || 0)) {
+                    if (data.ros && players.length === data.ros.length) applyMpRoster(data.ros);
+                    return;
+                }
+            }
+            // Can't build the player list without roster info; the host re-sends it twice a second
+            // (return BEFORE recording the sequence number so a late roster packet isn't mistaken for stale)
+            if (players.length !== data.pls.length && !data.ros) return;
+            if (data.q !== undefined) window._mpLastSeq = data.q;
+
             // Client handles host pausing
             if (data.gs === 'PAUSED') {
                 if (gameState !== 'PAUSED') {
@@ -876,53 +900,66 @@
             }
 
             // Sync Core State
-            // (If client is actively kicking, don't overwrite the game state from host)
-            if (!(data.ui === 'CLIENT_KICKING' && (gameState === 'KICK_POWER' || gameState === 'KICK_DIR' || gameState === 'WAIT_KICK_CONFIRM'))) {
-                gameState = data.gs;
-            }
-            
+            // (If the client is actively kicking, don't overwrite the local kick state from host)
+            const clientKickingNow = (data.ui === 'CLIENT_KICKING');
+            const localKickActive = clientKickingNow && (gameState === 'KICK_POWER' || gameState === 'KICK_DIR' || gameState === 'WAIT_KICK_CONFIRM');
+            if (!localKickActive) gameState = data.gs;
+
             playState = data.ps; lineOfScrimmage = data.loc; firstDownLine = data.fd; offenseDirection = data.od;
             down = data.dwn; quarter = data.qtr; gameClock = data.clk; playClock = data.pclk;
             playerScore = data.scY; cpuScore = data.scC;
-            
+
+            // Kick play flags only ever get set on the host, so mirror them here
+            // (they decide which meter style is drawn, the aim limit, and who is kicking)
+            isFieldGoalPlay = !!data.fg; isPAT = !!data.pat; isPuntPlay = !!data.pnt;
+            window._mpClientKicks = clientKickingNow;
+
+            if (clientKickingNow) {
+                if (!window._mpKickPrev) {
+                    // A kick just became mine: start my own local meter from zero (once)
+                    window._mpKickPrev = true;
+                    syncUI('NONE');
+                    gameState = 'KICK_POWER'; meterValue = 0; meterDelta = data.md || 1.8; dirValue = 0;
+                    spacePressed = !!keys['Space'];
+                }
+            } else {
+                window._mpKickPrev = false;
+                // Someone else (the host) is kicking: show THEIR meter so it is visible here too
+                meterValue = data.mv; dirValue = data.dv;
+            }
+
             // Set ball INTERPOLATION targets
-            ball.targetX = data.b.x; ball.targetY = data.b.y; ball.targetZ = data.b.z; 
-            ball.spinAngle = data.b.sa; ball.isDeadPass = data.b.dP;
-            
-            // Set camera INTERPOLATION targets from host's exact framing
-            camera.targetX = data.c.tx; camera.targetY = data.c.ty; camera.targetZ = data.c.z;
+            ball.targetX = data.b[0]; ball.targetY = data.b[1]; ball.targetZ = data.b[2];
+            ball.spinAngle = data.b[3]; ball.isDeadPass = !!data.b[4];
+
+            // Host's framing (used for shared moments; live action uses MY OWN camera, see update())
+            camera.targetX = data.c[0]; camera.targetY = data.c[1]; camera.targetZ = data.c[2];
 
             // Sync UI locally using state flag
             window._uiN = ((window._uiN || 0) + 1) % 30;
-            if (data.ui === 'CLIENT_KICKING' || data.ui !== window._lastUi || window._uiN === 0) { window._lastUi = data.ui; syncUI(data.ui); }
+            if (data.ui !== window._lastUi || window._uiN === 0) { window._lastUi = data.ui; syncUI(data.ui); }
 
             // Reconstruct arrays if needed
             if (players.length !== data.pls.length) {
-                players = data.pls.map(dp => {
-                    let p = createPlayer(dp.x, dp.y, dp.isCPU, dp.isK);
-                    p.isLineman = dp.isLnm; p.isQB = dp.isQB; p.isReturner = dp.isRet; p.isMLB = dp.isMLB;
-                    p.skinTone = dp.sT; p.girth = dp.g;
-                    return p;
-                });
+                players = data.pls.map((dp, i) => createPlayer(dp[0], dp[1], !!data.ros[i][0], !!data.ros[i][1]));
             }
-            for(let i=0; i<players.length; i++) {
-                players[i].targetX = data.pls[i].x; players[i].targetY = data.pls[i].y; 
-                players[i].facing = data.pls[i].f;
-                players[i].animTimer = data.pls[i].a; players[i].isDiving = data.pls[i].isD; players[i].isTackling = data.pls[i].isT;
-                players[i].isLunging = data.pls[i].isL; players[i].isMissedTackle = data.pls[i].isM; players[i].hasBall = data.pls[i].hb;
-                players[i].isBlocking = data.pls[i].isB; players[i].isTargetReceiver = data.pls[i].tr; players[i].isIntercepter = data.pls[i].int;
-                players[i].hopOffset = data.pls[i].hO;
-                players[i].diveTimer = data.pls[i].dT;
-                players[i].tackleAnimTimer = data.pls[i].tT;
-                players[i].tackleTimer = data.pls[i].tckT;
-                players[i].hitDirX = data.pls[i].hdX;
-                players[i].hitDirY = data.pls[i].hdY;
+            // Roster flags (isCPU / isKicker / QB ...) change every play: keep them in sync
+            if (data.ros) applyMpRoster(data.ros);
+
+            for (let i = 0; i < players.length; i++) {
+                const d = data.pls[i], p = players[i], f = d[4];
+                p.targetX = d[0]; p.targetY = d[1]; p.facing = d[2]; p.animTimer = d[3];
+                p.isDiving = !!(f & 1); p.isTackling = !!(f & 2); p.isLunging = !!(f & 4); p.isMissedTackle = !!(f & 8);
+                p.hasBall = !!(f & 16); p.isBlocking = !!(f & 32); p.isTargetReceiver = !!(f & 64); p.isIntercepter = !!(f & 128);
+                p.hopOffset = d[5]; p.diveTimer = d[6]; p.tackleAnimTimer = d[7]; p.tackleTimer = d[8];
+                p.hitDirX = d[9]; p.hitDirY = d[10];
             }
 
-            if (refs.length !== data.refs.length) refs = data.refs.map(dr => createRef(dr.x, dr.y, dr.id));
-            for(let i=0; i<refs.length; i++) {
-                refs[i].targetX = data.refs[i].x; refs[i].targetY = data.refs[i].y; refs[i].facing = data.refs[i].f;
-                refs[i].animTimer = data.refs[i].a; refs[i].state = data.refs[i].s; refs[i].hasFlag = data.refs[i].hF;
+            if (refs.length !== data.refs.length) refs = data.refs.map(dr => createRef(dr[0], dr[1], dr[6]));
+            for (let i = 0; i < refs.length; i++) {
+                const d = data.refs[i];
+                refs[i].targetX = d[0]; refs[i].targetY = d[1]; refs[i].facing = d[2];
+                refs[i].animTimer = d[3]; refs[i].state = d[4]; refs[i].hasFlag = !!d[5];
             }
 
             // Sync TD Banner
@@ -947,7 +984,7 @@
 
             // Update HUD text if needed based on state
             let hudHtml = "";
-            if (['PRE_SNAP', 'PLAY_CALL'].includes(gameState)) { 
+            if (['PRE_SNAP', 'PLAY_CALL'].includes(gameState)) {
                 if (offenseDirection === 1) { // Client is Offense
                     hudHtml = `<div style="color: #3b82f6; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">TAP ACT TO SNAP</div>`;
                 } else { // Client is Defense
@@ -988,9 +1025,9 @@
                 else if (meterValue <= 0) { meterValue = -meterValue; meterDelta = Math.abs(meterDelta); } 
             } 
             else if (gameState === 'KICK_DIR') { 
-                dirValue += dirDelta; 
-                if (dirValue >= 1) { dirValue = 1; dirDelta = -Math.abs(dirDelta); } 
-                else if (dirValue <= -1) { dirValue = -1; dirDelta = Math.abs(dirDelta); } 
+                dirValue += dirDelta; let aimLim = kickAimLimit();
+                if (dirValue >= aimLim) { dirValue = aimLim; dirDelta = -Math.abs(dirDelta); } 
+                else if (dirValue <= -aimLim) { dirValue = -aimLim; dirDelta = Math.abs(dirDelta); } 
             }
         }
 
@@ -1041,12 +1078,46 @@
         function hideTouchdownBanner() { tdBanner.classList.remove('show'); tdBanner.classList.add('hide'); }
 
         const FIELD_LENGTH_YARDS = 120; const FIELD_WIDTH_YARDS = 48; const X_STRETCH = 1.6;
+        const SCREEN_SPEED_BLEND = 0.7;
+        // ===== SHARED MOVEMENT + CONTACT HELPERS (used by the player AND the CPU so everyone follows the same rules) =====
+        // Fixed reference camera angles so movement speed never depends on the camera mode.
+        const MOVE_PITCH = 0.55, MOVE_SKEW = 0.7;
+        // Speed multiplier for moving in world direction (dx, dy): makes pace look even on screen. Straight downfield = 1.0.
+        function worldDirSpeedMul(dx, dy) {
+            const len = Math.hypot(dx, dy); if (len < 1e-6) return 1;
+            dx /= len; dy /= len;
+            const sp = Math.hypot(dx * X_STRETCH + dy * MOVE_SKEW, dy * MOVE_PITCH);
+            return Math.pow(X_STRETCH / sp, SCREEN_SPEED_BLEND);
+        }
+        // Contact: measured the way the players LOOK on screen (world x is stretched by X_STRETCH), not raw world yards.
+        const BODY_R = 0.6;      // body radius; two standing players touch at about BODY_R * 2
+        const DIVE_REACH = 1.3;  // how far a diving / lunging body stretches out ahead of the player
+        const bodyR = p => BODY_R * Math.min(1.3, Math.max(0.9, p.girth || 1));
+        const visDist = (a, b) => Math.hypot((a.x - b.x) * X_STRETCH, a.y - b.y);
+        // Does body 'a' touch body 'b'? A diving/lunging 'a' is a capsule stretched along its dive direction.
+        function touchesOneWay(a, b) {
+            const need = bodyR(a) + bodyR(b);
+            let ox = (b.x - a.x) * X_STRETCH, oy = b.y - a.y, dX = 0, dY = 0, reach = 0;
+            if (a.isDiving) { dX = a.diveDirX; dY = a.diveDirY; reach = DIVE_REACH; }
+            else if (a.isLunging) { dX = a.lungeDirX; dY = a.lungeDirY; reach = DIVE_REACH * 0.8; }
+            if (reach > 0) {
+                let vx = dX * X_STRETCH, vy = dY, vl = Math.hypot(vx, vy);
+                if (vl > 1e-6) { vx /= vl; vy /= vl; const t = Math.max(0, Math.min(reach, ox * vx + oy * vy)); ox -= vx * t; oy -= vy * t; }
+            }
+            return Math.hypot(ox, oy) <= need;
+        }
+        const touching = (a, b) => touchesOneWay(a, b) || touchesOneWay(b, a);
         const SKIN_TONES = ['#fbcfe8', '#f5d0b5', '#d4a373', '#a67b5b', '#6b4423', '#3e2723', '#291712'];
 
         function screenInputToWorldDir(inputX, inputY) {
             let len = Math.sqrt(inputX * inputX + inputY * inputY); if (len < 0.0001) return { x: 0, y: 0, active: false };
             let ix = inputX / len, iy = inputY / len; let worldDy = iy / camera.pitch; let worldDx = (ix - worldDy * camera.skew) / X_STRETCH;
-            return { x: worldDx, y: worldDy, active: true };
+            let wl = Math.sqrt(worldDx * worldDx + worldDy * worldDy) || 1;
+            // The camera squashes the field vertically (pitch) and stretches it horizontally (X_STRETCH), so equal
+            // WORLD speed looks very uneven ON SCREEN. 'mul' scales world speed so the player looks like they move
+            // at the same pace in every direction. Horizontal (downfield) speed is the reference and stays 1.0.
+            // SCREEN_SPEED_BLEND: 0 = old behavior (equal world speed), 1 = perfectly even on screen.
+            return { x: worldDx / wl, y: worldDy / wl, mul: worldDirSpeedMul(worldDx, worldDy), active: true };
         }
 
         function createRef(x, y, id) {
@@ -1139,7 +1210,7 @@
         }
 
         function triggerTackle(carrier, hitter) {
-            if (gameState !== 'PLAYING') return; gameState = 'TACKLED'; isAimingPass = false; carrier.tackleTimer = 0; carrier.isDiving = false; carrier.hitDirX = carrier.x - hitter.x; carrier.hitDirY = carrier.y - hitter.y;
+            if (gameState !== 'PLAYING') return; gameState = 'TACKLED'; isAimingPass = false; aimPointerId = null; carrier.tackleTimer = 0; carrier.isDiving = false; carrier.hitDirX = carrier.x - hitter.x; carrier.hitDirY = carrier.y - hitter.y;
             let hLen = Math.sqrt(carrier.hitDirX * carrier.hitDirX + carrier.hitDirY * carrier.hitDirY) || 1; carrier.hitDirX /= hLen; carrier.hitDirY /= hLen;
             let gangTacklers = players.filter(pl => pl !== hitter && pl !== carrier && pl.isCPU !== carrier.isCPU && Math.sqrt(Math.pow(pl.x - carrier.x, 2) + Math.pow(pl.y - carrier.y, 2)) < 1.6);
             [hitter, ...gangTacklers].forEach(t => { let dx = carrier.x - t.x, dy = carrier.y - t.y; let len = Math.sqrt(dx * dx + dy * dy) || 1; t.tackleHitDirX = dx / len; t.tackleHitDirY = dy / len; t.isTackling = true; t.tackleAnimTimer = 0; t.isLunging = false; t.isMissedTackle = false; t.isDiving = false; });
@@ -1382,7 +1453,7 @@
             players.forEach(p => {
                 if (p.isLineman) { p.speed = 0.052 + Math.random() * 0.01; p.girth = 1.35 + Math.random() * 0.45; } 
                 else { if (!p.girth || p.girth === 1.0) p.girth = 0.95 + Math.random() * 0.15; if (!p.speedModified) { p.speed = 0.082 + (Math.random() * 0.008); p.speedModified = true; } }
-                if (p === player) { p.speed = 0.095; if (!p.skinTone) p.skinTone = SKIN_TONES[2]; } else if (p.isCPU && cpuDifficulty !== 0) { p.speed *= (1 + cpuDifficulty * 0.09); }
+                if (p === player) { p.speed = 0.086; if (!p.skinTone) p.skinTone = SKIN_TONES[2]; } else if (p.isCPU && cpuDifficulty !== 0) { p.speed *= (1 + cpuDifficulty * 0.09); }
             });
             
             if (isMultiplayer && isMpHost) {
@@ -1484,7 +1555,9 @@
 
         function startKickRunUp(power, direction) { lockedPower = power; lockedDir = direction; gameState = 'KICKER_RUN_UP'; camera.target = players.find(p => p.isKicker) || ball; mainClockStarted = true; }
 
+        function kickAimLimit() { return isFieldGoalPlay ? 1 : 0.45; } // max sideways aim for kickoffs / punts
         function kickTheBall(power, direction) {
+            if (!isFieldGoalPlay) direction = Math.max(-kickAimLimit(), Math.min(kickAimLimit(), direction));
             let dirX = (playState === 'KICK') ? -1 : 1; if (isPAT) dirX = offenseDirection;
             if (isFieldGoalPlay) { ball.vx = dirX * ((power / 100) * 0.283); ball.vz = 0.65; } 
             else if (isPuntPlay) { ball.vx = dirX * ((power / 100) * 0.09 + 0.16); ball.vz = (power / 100) * 0.24 + 0.62; } 
@@ -1492,6 +1565,11 @@
             ball.vy = direction * dirX * 0.22; ball.isKicked = true; ball.destX = ball.x; ball.destY = ball.y;
             let tempZ = ball.z, tempVz = ball.vz;
             while (tempZ >= 0) { ball.destX += ball.vx; ball.destY += ball.vy; tempZ += tempVz; tempVz -= 0.008; }
+            if (!isFieldGoalPlay) { // kickoffs / punts / PAT-free kicks must land inbounds
+                let maxY = FIELD_WIDTH_YARDS / 2 - 3; let offY = ball.destY - ball.y;
+                let lo = -maxY - ball.y, hi = maxY - ball.y;
+                if (offY > hi || offY < lo) { let clamped = Math.max(lo, Math.min(hi, offY)); let scale = offY !== 0 ? clamped / offY : 0; ball.vy *= scale; ball.destY = ball.y + clamped; }
+            }
             gameState = 'BALL_IN_AIR'; camera.target = ball; 
         }
 
@@ -1748,7 +1826,6 @@
                 let de2 = createPlayer(dLine, 6.5, false); de2.isLineman = true; players.push(de2); 
                 let cb1 = createPlayer(dLine + (dir*2), -14, false); cb1.aiRole = 'MAN'; players.push(cb1); 
                 let cb2 = createPlayer(dLine + (dir*2), 14, false); cb2.aiRole = 'MAN'; players.push(cb2); 
-                let mlb = createPlayer(dLine + (dir*4), 1.5, false); mlb.aiRole = 'MAN'; mlb.isMLB = true; players.push(mlb);
             }
             
             players.forEach(p => { if (p === player) return; p.facing = (p.isCPU === isPlayerOffense) ? -dir : dir; });
@@ -1769,7 +1846,7 @@
             }
         }
 
-        function snapBall() { gameState = 'PLAYING'; let qb = players.find(p => p.isQB && (offenseDirection === -1 ? !p.isCPU : p.isCPU)); if (qb) qb.hasBall = true; hud.innerHTML = ""; hideUI(); mainClockStarted = true; }
+        function snapBall() { gameState = 'PLAYING'; isAimingPass = false; aimPointerId = null; players.forEach(p => { p.tackleTimer = 0; }); let qb = players.find(p => p.isQB && (offenseDirection === -1 ? !p.isCPU : p.isCPU)); if (qb) qb.hasBall = true; hud.innerHTML = ""; hideUI(); mainClockStarted = true; }
 
         function getPlaySVG(title, playRoutesHTML) {
             return `<div class="play-card" onclick="selectPlay('${title.replace(/ /g, "_")}')"><div class="play-title">${title.replace(/_/g, " ")}</div><svg class="playbook-svg menu-icon" viewBox="0 0 120 120"><rect x="0" y="0" width="120" height="120" fill="#0f661e" /><path d="M0 10 H120 M0 30 H120 M0 50 H120 M0 70 H120 M0 90 H120 M0 110 H120" stroke="#0a4a15" stroke-width="2" /><line x1="0" y1="50" x2="120" y2="50" stroke="#ffe600" stroke-width="2" stroke-dasharray="4,4"/> <line x1="0" y1="20" x2="120" y2="20" stroke="#00f0ff" stroke-width="2" stroke-dasharray="4,4"/> ${playRoutesHTML}</svg></div>`;
@@ -1896,13 +1973,16 @@
             // MULTIPLAYER CLIENT BYPASS
             if (isMultiplayer && isMpClient) {
                 if (mpConnection && mpConnection.open) {
-                    const inp = getClientInput(); const ik = inp.dx + '|' + inp.dy + '|' + inp.act;
-                    window._mpIn = ((window._mpIn || 0) + 1) % 6;
-                    if (inp.pass || ik !== window._mpInKey || window._mpIn === 0) { window._mpInKey = ik; mpConnection.send(inp); }
+                    const inp = getClientInput();
+                    inp.dx = Math.round(inp.dx * 20) / 20; inp.dy = Math.round(inp.dy * 20) / 20; // quantize so tiny joystick jitter isn't a "change"
+                    const ik = inp.dx + '|' + inp.dy + '|' + inp.act;
+                    window._mpIn = ((window._mpIn || 0) + 1) % 12; window._mpInGap = (window._mpInGap || 0) + 1;
+                    // send on change (max ~30/s), always send passes, plus a heartbeat
+                    if (inp.pass || (ik !== window._mpInKey && window._mpInGap >= 2) || window._mpIn === 0) { window._mpInKey = ik; window._mpInGap = 0; mpConnection.send(inp); }
                 }
                 
                 // Allow client kicking processing (visuals only)
-                let clientKicking = ((isFieldGoalPlay || isPAT || isPuntPlay) ? (offenseDirection === 1) : (playState === 'RECEIVE'));
+                let clientKicking = !!window._mpClientKicks;
                 if (clientKicking) {
                     processLocalClientKickMeter();
                     
@@ -1930,6 +2010,7 @@
                 players.forEach(p => {
                     if (p.targetX !== undefined) {
                         let prevX = p.x; let prevY = p.y;
+                        if (Math.abs(p.targetX - p.x) > 10 || Math.abs(p.targetY - p.y) > 10) { p.x = p.targetX; p.y = p.targetY; prevX = p.x; prevY = p.y; } // new play setup: snap, don't streak across the field
                         p.x += (p.targetX - p.x) * 0.35;
                         p.y += (p.targetY - p.y) * 0.35;
                         // Client calculates anim locally based on movement (with grace so 30Hz packets don't flicker legs)
@@ -1945,11 +2026,21 @@
                     }
                 });
 
-                // Client Camera Exact Sync
-                if (camera.targetX !== undefined) {
-                    camera.currentX += (camera.targetX - camera.currentX) * 0.4;
-                    camera.currentY += (camera.targetY - camera.currentY) * 0.4;
-                    camera.zoom += (camera.targetZ - camera.zoom) * 0.2;
+                // Client camera: during live action follow MY player (or the ball carrier when I'm on offense),
+                // NOT the host's player. Shared moments (coin toss, kicks, ball in the air, celebrations, penalties)
+                // keep using the host's framing.
+                {
+                    let tx = camera.targetX, ty = camera.targetY, tz = camera.targetZ, kPos = 0.4, kZoom = 0.2;
+                    if ((gameState === 'PRE_SNAP' || gameState === 'PLAYING') && p2Player) {
+                        let focus = p2Player;
+                        if (gameState === 'PLAYING' && offenseDirection === 1) { const bc = players.find(p => p.hasBall); if (bc) focus = bc; }
+                        tx = focus.x; ty = focus.y; tz = camera.baseZoom; kPos = 0.25; kZoom = 0.08;
+                    }
+                    if (tx !== undefined) {
+                        if (Math.abs(tx - camera.currentX) > 30 || Math.abs(ty - camera.currentY) > 30) { camera.currentX = tx; camera.currentY = ty; }
+                        else { camera.currentX += (tx - camera.currentX) * kPos; camera.currentY += (ty - camera.currentY) * kPos; }
+                        camera.zoom += (tz - camera.zoom) * kZoom;
+                    }
                 }
                 
                 updateScreenShake(); updateParticles();
@@ -1963,7 +2054,15 @@
             // MULTIPLAYER HOST DATA SEND
             if (isMultiplayer && isMpHost && mpConnection && mpConnection.open) {
                 window._mpTick = ((window._mpTick || 0) + 1) % 2;
-                if (window._mpTick === 0) mpConnection.send(serializeState());
+                if (window._mpTick === 0) {
+                    const dc = mpConnection.dataChannel;
+                    if (!dc || dc.bufferedAmount < 32768) { // skip a frame instead of piling up lag if the network is behind
+                        window._mpPk = (window._mpPk || 0) + 1;
+                        const withRoster = (window._mpPk % 15 === 1) || window._mpLastGs !== gameState;
+                        window._mpLastGs = gameState;
+                        mpConnection.send(serializeState(withRoster));
+                    }
+                }
             }
 
             ensureRefsExist(); updateScreenShake(); updateParticles();
@@ -2102,7 +2201,7 @@
                 let clientKicking = isMultiplayer && isMpHost && ((isFieldGoalPlay || isPAT || isPuntPlay) ? (offenseDirection === 1) : (playState === 'RECEIVE'));
                 if (!clientKicking) {
                     if (gameState === 'KICK_POWER') { meterValue += meterDelta; if (meterValue >= 100) { meterValue = 200 - meterValue; meterDelta = -Math.abs(meterDelta); } else if (meterValue <= 0) { meterValue = -meterValue; meterDelta = Math.abs(meterDelta); } } 
-                    else if (gameState === 'KICK_DIR') { dirValue += dirDelta; if (dirValue >= 1) { dirValue = 1; dirDelta = -Math.abs(dirDelta); } else if (dirValue <= -1) { dirValue = -1; dirDelta = Math.abs(dirDelta); } }
+                    else if (gameState === 'KICK_DIR') { dirValue += dirDelta; let aimLim = kickAimLimit(); if (dirValue >= aimLim) { dirValue = aimLim; dirDelta = -Math.abs(dirDelta); } else if (dirValue <= -aimLim) { dirValue = -aimLim; dirDelta = Math.abs(dirDelta); } }
                 }
 
                 if (gameState === 'KICKER_RUN_UP') { let kicker = players.find(p => p.isKicker); if (kicker) { let dirX = (kicker.x > ball.x) ? -1 : 1; kicker.x += dirX * 0.15; kicker.animTimer += 0.4; if (Math.abs(kicker.x - ball.x) <= 0.5) { kicker.x = ball.x + (dirX * 0.5); kicker.animTimer = Math.PI / 2; kickTheBall(lockedPower, lockedDir); } } }
@@ -2111,7 +2210,7 @@
                     ball.prevX = ball.x; ball.prevY = ball.y; ball.prevZ = ball.z;
                     ball.x += ball.vx; ball.y += ball.vy; ball.z += ball.vz; ball.vz -= 0.008; 
                     if (ball.z <= 0) {
-                        ball.z = 0; ball.vx *= 0.6; ball.vy *= 0.6; ball.vz = Math.abs(ball.vz) * 0.4; 
+                        ball.z = 0; ball.vx *= 0.6; ball.vy *= 0.6; ball.vz = Math.abs(ball.vz) * 0.4; if (ball.isKicked && !isFieldGoalPlay) { let inY = FIELD_WIDTH_YARDS / 2 - 2; if (ball.y > inY) { ball.y = inY; ball.vy = 0; } else if (ball.y < -inY) { ball.y = -inY; ball.vy = 0; } } 
                         if (isPassing && !ball.isDeadPass) { ball.isDeadPass = true; ball.pbuMessage = "INCOMPLETE PASS"; }
                         if (ball.vz < 0.15) { ball.vz = 0; ball.vx = 0; ball.vy = 0; if (gameState === 'BALL_IN_AIR') gameState = 'BALL_LOOSE'; }
                     }
@@ -2143,7 +2242,7 @@
                         let targetX = gameState === 'BALL_IN_AIR' ? ball.destX : ball.x; let targetY = gameState === 'BALL_IN_AIR' ? ball.destY : ball.y;
                         let trackDx = targetX - returner.x; let trackDy = targetY - returner.y; let distToTarget = Math.sqrt(trackDx*trackDx + trackDy*trackDy);
                         if (distToTarget > 0.3) {
-                            let speedMult = returner.isTargetReceiver ? 1.05 : (returner.isIntercepter ? 1.02 : 1.15); let chaseSpeed = returner.speed * speedMult;
+                            let speedMult = returner.isTargetReceiver ? 1.05 : (returner.isIntercepter ? 1.02 : (returner.isReturner ? 1.4 : 1.15)); let chaseSpeed = returner.speed * speedMult * worldDirSpeedMul(trackDx, trackDy);
                             let moveDist = Math.min(chaseSpeed, distToTarget); 
                             returner.x += (trackDx / distToTarget) * moveDist; returner.y += (trackDy / distToTarget) * moveDist; returner.animTimer += 0.3; returner.facing = trackDx > 0 ? 1 : -1;
                         } else { returner.animTimer = 0; }
@@ -2212,7 +2311,7 @@
                     let distToCarrier = carrier ? Math.hypot(carrier.x - p.x, carrier.y - p.y) : 100; let canBlock = !isDefending || distToCarrier > 1.8;
                     if (canBlock && !runningRoute && (gameState === 'BALL_IN_AIR' || gameState === 'PLAYING') && !p.hasBall && !p.isReturner && !p.isLunging && !p.isTackling && !p.isMissedTackle) { let enemies = players.filter(e => e.isCPU !== p.isCPU && !e.hasBall && !e.isReturner && !e.isBlocking && !e.runningRoute && !e.isLunging && !e.isTackling && !e.isMissedTackle); for (let e of enemies) { let engageDist = Math.hypot(e.x - p.x, e.y - p.y); if (engageDist < 1.3) { p.isBlocking = true; p.blockTarget = e; p.blockTimer = 0; e.isBlocking = true; e.blockTarget = p; e.blockTimer = 0; p.facing = (e.x > p.x) ? 1 : -1; e.facing = (p.x > e.x) ? 1 : -1; break; } } }
                     if (p.isBlocking) return;
-                    if (p === player && ['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) { if (gameState === 'PLAYING' && isDefending && carrier && carrier.isCPU) { let dist = Math.hypot(carrier.x - p.x, carrier.y - p.y); let tackleRadius = (player.isDiving ? 2.3 : 1.6) - cpuDifficulty * 0.25; if (dist <= tackleRadius) triggerTackle(carrier, p); } return; }
+                    if (p === player && ['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) { if (gameState === 'PLAYING' && isDefending && carrier && carrier.isCPU) { let dist = Math.hypot(carrier.x - p.x, carrier.y - p.y); if (touching(p, carrier)) triggerTackle(carrier, p); } return; }
                     
                     // Multiplayer: Allow P2 to control their assigned player manually instead of AI
                     if (p === p2Player && isMultiplayer && isMpHost && ['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState) && !p.isBlocking && !p.isDiving) {
@@ -2222,7 +2321,7 @@
                             let diveDir = screenInputToWorldDir(dx, dy); p.diveDirX = diveDir.x; p.diveDirY = diveDir.y;
                         } else if (remoteInput.dx !== 0 || remoteInput.dy !== 0) {
                             let dir = screenInputToWorldDir(remoteInput.dx, remoteInput.dy);
-                            p.x += dir.x * p.speed; p.y += dir.y * p.speed; 
+                            p.x += dir.x * p.speed * dir.mul; p.y += dir.y * p.speed * dir.mul; 
                             if (dir.x > 0.05) p.facing = 1; else if (dir.x < -0.05) p.facing = -1;
                             p.animTimer += 0.3;
                         } else {
@@ -2230,7 +2329,7 @@
                         }
                         
                         let actualDistToCarrier = carrier ? Math.sqrt(Math.pow(carrier.x - p.x, 2) + Math.pow(carrier.y - p.y, 2)) : 100;
-                        if (actualDistToCarrier <= 1.3 && gameState === 'PLAYING' && carrier.hasBall && isDefending) triggerTackle(carrier, p);
+                        if (carrier && touching(p, carrier) && gameState === 'PLAYING' && carrier.hasBall && isDefending) triggerTackle(carrier, p);
                         return; 
                     }
 
@@ -2243,13 +2342,13 @@
                                 let targetX = carrier.x; let targetY = carrier.y;
                                 if (gameState === 'PLAYING' && !carrierPastLOS && p.aiRole && p.aiRole !== 'BLITZ' && p.aiRole !== 'PURSUE') { if (p.aiRole === 'ZONE') { targetX = lineOfScrimmage + (offenseDirection * 7); targetY = carrier.y; } else if (p.aiRole === 'MAN' || p.aiRole === 'PRESS') { let myWR = players.find(e => e.isCPU !== p.isCPU && !e.isLineman && !e.isQB && !e.isReturner && Math.abs(e.y - p.y) < 6); if (myWR) { targetX = myWR.x + (offenseDirection * (p.aiRole === 'MAN' ? 3 : 0)); targetY = myWR.y; } } }
                                 if (p.isMissedTackle) { p.missedTackleTimer = (p.missedTackleTimer || 0) + 1; p.animTimer = 0; if (p.missedTackleTimer > 32) { p.isMissedTackle = false; p.missedTackleTimer = 0; } } 
-                                else if (p.isLunging) { p.lungeTimer = (p.lungeTimer || 0) + 1; p.x += p.lungeDirX * 0.14; p.y += p.lungeDirY * 0.14; p.animTimer = 0; let lungeDist = Math.sqrt(Math.pow(carrier.x - p.x, 2) + Math.pow(carrier.y - p.y, 2)); if (lungeDist <= 1.2 && gameState === 'PLAYING' && carrier.hasBall) triggerTackle(carrier, p); else if (p.lungeTimer > 12) { p.isLunging = false; p.isMissedTackle = true; p.missedTackleTimer = 0; } } 
+                                else if (p.isLunging) { p.lungeTimer = (p.lungeTimer || 0) + 1; { const lm = 0.14 * worldDirSpeedMul(p.lungeDirX, p.lungeDirY); p.x += p.lungeDirX * lm; p.y += p.lungeDirY * lm; } p.animTimer = 0; let lungeDist = Math.sqrt(Math.pow(carrier.x - p.x, 2) + Math.pow(carrier.y - p.y, 2)); if (touching(p, carrier) && gameState === 'PLAYING' && carrier.hasBall) triggerTackle(carrier, p); else if (p.lungeTimer > 12) { p.isLunging = false; p.isMissedTackle = true; p.missedTackleTimer = 0; } } 
                                 else {
                                     let dx = targetX - p.x + sepX; let dy = targetY - p.y + sepY; let dist = Math.sqrt(dx*dx + dy*dy);
-                                    if (dist > 0.5 && !p.isIntercepter) { p.x += (dx / dist) * p.speed * 0.95; p.y += (dy / dist) * p.speed * 0.95; p.facing = dx > 0 ? 1 : -1; p.animTimer += 0.3; }
+                                    if (dist > 0.5 && !p.isIntercepter) { const cm = p.speed * 0.95 * worldDirSpeedMul(dx, dy); p.x += (dx / dist) * cm; p.y += (dy / dist) * cm; p.facing = dx > 0 ? 1 : -1; p.animTimer += 0.3; }
                                     let actualDistToCarrier = Math.sqrt(Math.pow(carrier.x - p.x, 2) + Math.pow(carrier.y - p.y, 2));
-                                    if (actualDistToCarrier <= 1.3 && gameState === 'PLAYING' && carrier.hasBall) triggerTackle(carrier, p);
-                                    else if (actualDistToCarrier > 1.3 && actualDistToCarrier < 2.0 && gameState === 'PLAYING' && carrier.hasBall && Math.random() < Math.max(0.02, 0.08 + (p.isCPU ? cpuDifficulty : -cpuDifficulty) * 0.06)) { let ldx = carrier.x - p.x, ldy = carrier.y - p.y; let llen = Math.sqrt(ldx * ldx + ldy * ldy) || 1; p.isLunging = true; p.lungeTimer = 0; p.lungeDirX = ldx / llen; p.lungeDirY = ldy / llen; p.facing = ldx > 0 ? 1 : -1; }
+                                    const touchNow = touching(p, carrier); if (touchNow && gameState === 'PLAYING' && carrier.hasBall) triggerTackle(carrier, p);
+                                    else if (!touchNow && visDist(p, carrier) < 2.4 && gameState === 'PLAYING' && carrier.hasBall && Math.random() < Math.max(0.02, 0.08 + (p.isCPU ? cpuDifficulty : -cpuDifficulty) * 0.06)) { let ldx = carrier.x - p.x, ldy = carrier.y - p.y; let llen = Math.sqrt(ldx * ldx + ldy * ldy) || 1; p.isLunging = true; p.lungeTimer = 0; p.lungeDirX = ldx / llen; p.lungeDirY = ldy / llen; p.facing = ldx > 0 ? 1 : -1; }
                                 }
                             }
                         } else if (gameState === 'PLAYING') {
@@ -2262,7 +2361,7 @@
                             } else if (!p.hasBall) {
                                 let bestDef = null; let highestDanger = -Infinity;
                                 players.forEach(d => { let dIsDef = isPassing ? ((d.isCPU && offenseDirection === -1) || (!d.isCPU && offenseDirection === 1)) : ((playState === 'RECEIVE' && d.isCPU) || (playState === 'KICK' && !d.isCPU)); if (dIsDef && !d.isBlocking) { let distToCarrier = carrier ? Math.sqrt(Math.pow(d.x - carrier.x, 2) + Math.pow(d.y - carrier.y, 2)) : 100; let distToBlocker = Math.sqrt(Math.pow(d.x - p.x, 2) + Math.pow(d.y - p.y, 2)); let danger = (100 - distToCarrier * 2.5) - distToBlocker; if (danger > highestDanger) { highestDanger = danger; bestDef = d; } } });
-                                if (bestDef) { let dx = bestDef.x - p.x + sepX; let dy = bestDef.y - p.y + sepY; let dist = Math.sqrt(dx*dx + dy*dy); if (dist > 0.5) { p.x += (dx / dist) * p.speed * 0.85; p.y += (dy / dist) * p.speed * 0.85; p.facing = dx > 0 ? 1 : -1; p.animTimer += 0.3; } } 
+                                if (bestDef) { let dx = bestDef.x - p.x + sepX; let dy = bestDef.y - p.y + sepY; let dist = Math.sqrt(dx*dx + dy*dy); if (dist > 0.5) { { const bm = p.speed * 0.85 * worldDirSpeedMul(dx, dy); p.x += (dx / dist) * bm; p.y += (dy / dist) * bm; } p.facing = dx > 0 ? 1 : -1; p.animTimer += 0.3; } } 
                                 else { let isOffense = (offenseDirection === -1) ? !p.isCPU : p.isCPU; if (isOffense && currentOffensePlay === 'INSIDE_RUN' && !p.isLineman && !p.isQB && !p.isReturner) { p.x += p.facing * (p.speed * 0.65); p.animTimer += 0.3; } }
                             } else if (p.hasBall && p.isCPU) {
                                 const cpuRunSpeed = p.speed * 0.80; 
@@ -2302,12 +2401,12 @@
                         if (player.x <= 81) { let cpuDef = players.find(p => p.isCPU && p.isLineman); if (cpuDef) triggerTackle(player, cpuDef); introScriptState = 'SCRIPTED_TACKLE'; }
                     } else if (player.isDiving) {
                         player.diveTimer++;
-                        if (player.diveTimer < 20) { let diveSpd = 0.25 * (1 - player.diveTimer/20); player.x += player.diveDirX * diveSpd; player.y += player.diveDirY * diveSpd; if (player.diveDirX !== 0) player.facing = player.diveDirX > 0 ? 1 : -1; } 
-                        else if (player.diveTimer >= 20 && player.diveTimer < 45) { let slideSpd = 0.10 * (1 - (player.diveTimer - 20)/25); player.x += player.diveDirX * slideSpd; player.y += player.diveDirY * slideSpd; if(Math.random() < 0.4) spawnDust(player.x, player.y); } 
+                        if (player.diveTimer < 20) { let diveSpd = 0.25 * (1 - player.diveTimer/20) * worldDirSpeedMul(player.diveDirX, player.diveDirY); player.x += player.diveDirX * diveSpd; player.y += player.diveDirY * diveSpd; if (player.diveDirX !== 0) player.facing = player.diveDirX > 0 ? 1 : -1; } 
+                        else if (player.diveTimer >= 20 && player.diveTimer < 45) { let slideSpd = 0.10 * (1 - (player.diveTimer - 20)/25) * worldDirSpeedMul(player.diveDirX, player.diveDirY); player.x += player.diveDirX * slideSpd; player.y += player.diveDirY * slideSpd; if(Math.random() < 0.4) spawnDust(player.x, player.y); } 
                         else if (player.diveTimer >= 60) { player.isDiving = false; player.diveTimer = 0; }
                     } else if (['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) {
                         let inputX = 0, inputY = 0; if (joystick && joystick.active) { inputX = joystick.normX; inputY = joystick.normY; if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) { inputX = 0; inputY = 0; } } else { if (keys['ArrowUp'] || keys['KeyW']) inputY -= 1; if (keys['ArrowDown'] || keys['KeyS']) inputY += 1; if (keys['ArrowLeft'] || keys['KeyA']) inputX -= 1; if (keys['ArrowRight'] || keys['KeyD']) inputX += 1; }
-                        if (inputX !== 0 || inputY !== 0) { isMoving = true; let dir = screenInputToWorldDir(inputX, inputY); player.x += dir.x * player.speed; player.y += dir.y * player.speed; if (dir.x > 0.05) player.facing = 1; else if (dir.x < -0.05) player.facing = -1; }
+                        if (inputX !== 0 || inputY !== 0) { isMoving = true; let dir = screenInputToWorldDir(inputX, inputY); player.x += dir.x * player.speed * dir.mul; player.y += dir.y * player.speed * dir.mul; if (dir.x > 0.05) player.facing = 1; else if (dir.x < -0.05) player.facing = -1; }
                     }
                 }
 
@@ -2320,7 +2419,7 @@
                 if (ballCarrier) {
                     ball.x = ballCarrier.x; ball.y = ballCarrier.y; ball.z = 1.0; let reachedEndzone = ballCarrier.isCPU ? (ballCarrier.x >= 110) : (ballCarrier.x <= 10);
                     if (gameState === 'PLAYING' && reachedEndzone) handleTouchdown(ballCarrier);
-                    else if (gameState === 'PLAYING' && (ballCarrier.y <= -FIELD_WIDTH_YARDS/2 || ballCarrier.y >= FIELD_WIDTH_YARDS/2)) { ballCarrier.y = Math.max(-FIELD_WIDTH_YARDS/2, Math.min(FIELD_WIDTH_YARDS/2, ballCarrier.y)); if (!ballCarrier.tackleTimer) { endPlay("OUT OF BOUNDS"); } }
+                    else if (gameState === 'PLAYING' && (ballCarrier.y <= -FIELD_WIDTH_YARDS/2 || ballCarrier.y >= FIELD_WIDTH_YARDS/2)) { ballCarrier.y = Math.max(-FIELD_WIDTH_YARDS/2, Math.min(FIELD_WIDTH_YARDS/2, ballCarrier.y)); endPlay("OUT OF BOUNDS"); }
                 }
 
                 if (gameState === 'TACKLED' && ballCarrier) {
@@ -2548,9 +2647,201 @@ const PXS = (function () {
         const TRACK_OUT0 = 30 + 8 * 1.3 + 0.28;    // track corner radius + lanes + border = where the track ends
         const stadiumGroundCache = {};
         const standCache = {};
-        let backdropCanvas = null;
         function stadiumHomeSouth() { return qpState.playerSide !== 'AWAY'; }
         function getStadiumGround(homeSouth) { const k = homeSouth ? 1 : 0; return stadiumGroundCache[k] || (stadiumGroundCache[k] = buildStadiumGround(homeSouth)); }
+
+        // ===== STADIUM GROUNDS v2: perimeter fence, gates, sidewalks, lookout decks, trees & bushes =====
+        const PF = { x0: -32.4, x1: 152.4, y: 66.8 };      // outer perimeter fence: x extent, |y|
+        const FAR_T = -(45.68 + 8.3), NEAR_T = 45.68 + 8.3; // depth where the grandstands start (far / near side)
+        const FAR_LAWN = 16;                                // yards of plain lawn drawn past the ground layer
+        function yAtO(X, o) { const qx = Math.max(Math.abs(X - 60) - 44, 0), R = TRACK_OUT0 + o; return 5 + Math.sqrt(Math.max(R * R - qx * qx, 0)); }
+        function geoAt(X, Y, hs) { const dxa = Math.abs(X - 60), qx = Math.max(dxa - 44, 0), qy = Math.max(Math.abs(Y) - 5, 0); return { o: Math.sqrt(qx * qx + qy * qy) - TRACK_OUT0, dxa, homeSide: (Y > 0 ? 1 : -1) === hs }; }
+        function deckRect(d) { return { x0: d.x - d.w / 2, x1: d.x + d.w / 2, y0: d.y - d.d / 2, y1: d.y + d.d / 2 }; }
+        const layoutCache = {};
+        function getLayout(hs) { const k = hs > 0 ? 1 : 0; return layoutCache[k] || (layoutCache[k] = buildLayout(hs)); }
+
+        function buildLayout(hs) {
+            const H = hs, A = -hs, STR = 5 + TRACK_OUT0;      // STR + o = |y| on the straights
+            const gates = [], paths = [], decks = [];
+            const rect = (x0, x1, y0, y1) => paths.push({ x0, x1, y0, y1 });
+            const vwalk = (x, s, ya, yb, w) => rect(x - w / 2, x + w / 2, Math.min(s * ya, s * yb), Math.max(s * ya, s * yb));
+            const hwalk = (y, s, xa, xb, w) => rect(Math.min(xa, xb), Math.max(xa, xb), s * y - w / 2, s * y + w / 2);
+            const gate = (x, y, w, kind, horiz) => { gates.push({ x, y, w, kind, horiz: !!horiz, s: y === 0 ? 0 : (y > 0 ? 1 : -1) }); if (horiz) rect(x - 1.4, x + 1.4, y - w / 2, y + w / 2); else rect(x - w / 2, x + w / 2, y - 1.4, y + 1.4); };
+            // home side: three gates, a main walk to the grandstand, a rear concourse with stair landings, side walks to the stand ends
+            gate(14, H * PF.y, 5.2, 'side'); gate(60, H * PF.y, 8, 'main'); gate(106, H * PF.y, 5.2, 'side');
+            vwalk(60, H, PF.y, STR + 16.2, 4.4);
+            hwalk(STR + 19.3, H, 14, 106, 2.2);
+            [30, 50, 70, 90].forEach(x => vwalk(x, H, STR + 16.2, STR + 19.3, 1.8));
+            [14, 106].forEach(x => vwalk(x, H, PF.y, yAtO(x, 5.2), 3.4));
+            hwalk(STR + 11.8, H, 14, 19.7, 2.4); hwalk(STR + 11.8, H, 100.3, 106, 2.4);
+            // visitor side: two gates straight to the little bleacher, two gates up to the hillside lookouts
+            [44, 76].forEach(x => { gate(x, A * PF.y, 5, 'visitor'); vwalk(x, A, PF.y, STR + 14.4, 3.4); });
+            [14, 106].forEach(x => {
+                const yc = yAtO(x, 12.6); gate(x, A * PF.y, 4.6, 'side');
+                decks.push({ x, y: A * yc, w: 7, d: 4.4 });
+                vwalk(x, A, PF.y, yc + 2.2, 2.6); vwalk(x, A, yc - 2.2, yAtO(x, 5.2), 2.2);
+            });
+            // end-zone gates + corner lookouts
+            gate(PF.x0, 0, 5, 'end', true); gate(PF.x1, 0, 5, 'end', true);
+            rect(PF.x0, -29.4, -2.2, 2.2); rect(149.4, PF.x1, -2.2, 2.2);
+            [-19, 139].forEach(x => [-1, 1].forEach(sy => { decks.push({ x, y: sy * 56.5, w: 6.4, d: 4.4 }); vwalk(x, sy, yAtO(x, 5.2), 56.5 - 2.2, 2.2); }));
+
+            const items = [];
+            // ---- fences ----
+            const inGate = (mx, my) => gates.some(g => g.horiz ? (Math.abs(my - g.y) < g.w / 2 && Math.abs(mx - g.x) < 2) : (Math.abs(mx - g.x) < g.w / 2 && Math.abs(my - g.y) < 2));
+            const run = (xa, ya, xb, yb, h, kind, gated) => {
+                const len = Math.hypot(xb - xa, yb - ya), n = Math.max(1, Math.round(len / 2));
+                for (let i = 0; i < n; i++) {
+                    const ax = xa + (xb - xa) * i / n, ay = ya + (yb - ya) * i / n, bx = xa + (xb - xa) * (i + 1) / n, by = ya + (yb - ya) * (i + 1) / n;
+                    const mx = (ax + bx) / 2, my = (ay + by) / 2; if (gated && inGate(mx, my)) continue;
+                    items.push({ k: 'fence', x: mx, y: my, r: 2.2, hgt: h, xa: ax, ya: ay, xb: bx, yb: by, h, post: i % 2 === 0, kind });
+                }
+            };
+            run(PF.x0, -PF.y, PF.x1, -PF.y, 2.1, 'outer', true); run(PF.x0, PF.y, PF.x1, PF.y, 2.1, 'outer', true);
+            run(PF.x0, -PF.y, PF.x0, PF.y, 2.1, 'outer', true); run(PF.x1, -PF.y, PF.x1, PF.y, 2.1, 'outer', true);
+            { // low chain-link fence hugging the running track
+                const Rf = TRACK_OUT0 + 1.1, pts = [], arc = (cx, cy, a0, a1) => { const n = Math.max(2, Math.round(Math.abs(a1 - a0) * Rf / 2)); for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; pts.push([cx + Math.cos(a) * Rf, cy + Math.sin(a) * Rf]); } };
+                arc(104, -5, -Math.PI / 2, 0); arc(104, 5, 0, Math.PI / 2); arc(16, 5, Math.PI / 2, Math.PI); arc(16, -5, Math.PI, Math.PI * 1.5); pts.push(pts[0]);
+                for (let i = 0; i < pts.length - 1; i++) run(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 1.5, 'inner', false);
+            }
+            // ---- gates ----
+            gates.forEach(g => items.push({ k: 'gate', x: g.x, y: g.y, r: g.w, hgt: 5, g }));
+            // ---- decks ----
+            decks.forEach(d => items.push({ k: 'deck', x: d.x, y: d.y, r: d.w, hgt: 3.2, d }));
+            // ---- planting ----
+            const rnd = srng(hs > 0 ? 7011 : 7012);
+            const inR = (r, X, Y, p) => X > r.x0 - p && X < r.x1 + p && Y > r.y0 - p && Y < r.y1 + p;
+            const blocked = (X, Y, p) => {
+                const g = geoAt(X, Y, hs);
+                if (g.o < 7.5) return true;
+                if (g.homeSide && g.dxa <= 55 && g.o <= 21.5) return true;
+                if (!g.homeSide && g.dxa <= 27.5 && g.o <= 16) return true;
+                for (const r of paths) if (inR(r, X, Y, p)) return true;
+                for (const d of decks) if (inR(deckRect(d), X, Y, p + 1.2)) return true;
+                for (const q of gates) if (Math.hypot(X - q.x, Y - q.y) < q.w + p) return true;
+                return false;
+            };
+            const trees = [];
+            for (let n = 0; n < 6000 && trees.length < 44; n++) {
+                const X = PF.x0 + 1.8 + rnd() * (PF.x1 - PF.x0 - 3.6), Y = (rnd() * 2 - 1) * (PF.y - 1.8);
+                if (blocked(X, Y, 1.8) || trees.some(t => Math.hypot(t.x - X, t.y - Y) < 5.4)) continue;
+                trees.push({ x: X, y: Y });
+                items.push({ k: 'tree', x: X, y: Y, r: 3, hgt: 7, t: rnd() < 0.58 ? 0 : 1, v: Math.floor(rnd() * 3), h: 3.9 + rnd() * 2.2 });
+            }
+            const bush = (X, Y) => items.push({ k: 'bush', x: X, y: Y, r: 1.5, hgt: 1.4, v: Math.floor(rnd() * 3), h: 0.85 + rnd() * 0.5 });
+            trees.forEach(t => { const nb = 1 + Math.floor(rnd() * 3); for (let i = 0; i < nb; i++) { const X = t.x + (rnd() - 0.5) * 5, Y = t.y + (rnd() - 0.1) * 2.8; if (!blocked(X, Y, 0.8)) bush(X, Y); } });
+            for (const s of [-1, 1]) for (let x = 19; x < 101; x += 4.2 + rnd() * 4.5) if (Math.abs(x - 60) > 3) bush(x, s * (STR + 2.35));          // hedge between the track fence and the walkway ring
+            paths.forEach(p => { if ((p.y1 - p.y0) > 8 && (p.x1 - p.x0) < 5) for (let y = p.y0 + 2.2; y < p.y1 - 1.5; y += 3.6) [p.x0 - 1.3, p.x1 + 1.3].forEach(X => { if (!blocked(X, y, 0.7)) bush(X, y); }); });
+            for (let n = 0; n < 700 && n < 160; n++) { const X = PF.x0 + 1.5 + rnd() * (PF.x1 - PF.x0 - 3), Y = (rnd() * 2 - 1) * (PF.y - 1.4); if (!blocked(X, Y, 1.0) && Math.abs(Y) > 40) bush(X, Y); }
+            // treeline outside the fence (replaces the old night skyline)
+            for (let x = PF.x0 - 14; x <= PF.x1 + 14; x += 4.2 + rnd() * 3) [-1, 1].forEach(s => { const y = s * (70.2 + rnd() * 9.5); items.push({ k: 'tree', x: x + (rnd() - 0.5) * 2, y, r: 4, hgt: 11, t: rnd() < 0.6 ? 0 : 1, v: Math.floor(rnd() * 3), h: 6.4 + rnd() * 3.4 }); });
+            for (let y = -60; y <= 60; y += 4.4 + rnd() * 3) [-1, 1].forEach(s => items.push({ k: 'tree', x: s < 0 ? PF.x0 - 3.5 - rnd() * 9 : PF.x1 + 3.5 + rnd() * 9, y: y + (rnd() - 0.5), r: 4, hgt: 11, t: rnd() < 0.6 ? 0 : 1, v: Math.floor(rnd() * 3), h: 6.2 + rnd() * 3.2 }));
+            items.sort((a, b) => a.y - b.y);
+            return { gates, paths, decks, items, hs };
+        }
+
+        // ---------- pixel sprites: trees and bushes ----------
+        const plantCache = {};
+        function getTreeSprite(t, v) {
+            const key = 't' + t + v; if (plantCache[key]) return plantCache[key];
+            const W = 32, Hh = 46; const { c, R } = mkSprite(W, Hh); const rnd = srng(900 + t * 37 + v * 101);
+            const pal = v === 0 ? ['#1b5e2c', '#26803a', '#3a9d4a', '#14471f'] : v === 1 ? ['#2a6b2a', '#3d8a34', '#5aa843', '#1d4d1f'] : ['#1f6a4a', '#2c8a60', '#45a878', '#164d36'];
+            if (t === 0) {
+                R(14, 28, 4, 18, '#5a3d24'); R(14, 28, 1, 18, '#70502f'); R(17, 28, 1, 18, '#43301d'); R(11, 43, 3, 3, '#5a3d24'); R(18, 43, 3, 3, '#5a3d24');
+                const discs = [[16, 15, 13], [8, 21, 8], [24, 21, 8], [16, 25, 9], [10, 11, 7], [22, 11, 7]];
+                for (let y = 0; y < 38; y++) for (let x = 0; x < W; x++) {
+                    if (!discs.some(d => (x - d[0]) * (x - d[0]) + (y - d[1]) * (y - d[1]) <= d[2] * d[2])) continue;
+                    const s = (-(x - 16) - (y - 12)) / 30 + (rnd() - 0.5) * 0.42;
+                    R(x, y, 1, 1, s > 0.42 ? pal[2] : s > 0.05 ? pal[1] : s > -0.3 ? pal[0] : pal[3]);
+                }
+            } else {
+                R(14, 38, 4, 8, '#4f3620');
+                for (let i = 0; i < 5; i++) { const top = 1 + i * 7, hw = 3 + i * 3; for (let r = 0; r < 11; r++) { const w = Math.round(hw * (r + 1) / 11 + 1); for (let x = -w; x <= w; x++) { const s = (-x / (hw + 1)) * 0.6 + (rnd() - 0.5) * 0.35 - (r / 11) * 0.12; R(16 + x, top + r, 1, 1, s > 0.3 ? pal[2] : s > -0.05 ? pal[1] : s > -0.4 ? pal[0] : pal[3]); } } }
+            }
+            return plantCache[key] = c;
+        }
+        function getBushSprite(v) {
+            const key = 'b' + v; if (plantCache[key]) return plantCache[key];
+            const { c, R } = mkSprite(22, 13); const rnd = srng(1300 + v * 53);
+            const pal = v === 1 ? ['#2f6f2d', '#42913a', '#63b04a', '#1f4c20'] : ['#1f5e2e', '#2c8040', '#43a054', '#164a24'];
+            const discs = [[6, 8, 5], [12, 7, 6], [17, 8, 5], [11, 9, 5]];
+            for (let y = 0; y < 13; y++) for (let x = 0; x < 22; x++) {
+                if (!discs.some(d => (x - d[0]) * (x - d[0]) + (y - d[1]) * (y - d[1]) <= d[2] * d[2])) continue;
+                const s = (-(x - 11) - (y - 4)) / 16 + (rnd() - 0.5) * 0.5; R(x, y, 1, 1, s > 0.4 ? pal[2] : s > 0 ? pal[1] : s > -0.35 ? pal[0] : pal[3]);
+            }
+            if (v === 2) for (let i = 0; i < 9; i++) R(3 + Math.floor(rnd() * 16), 3 + Math.floor(rnd() * 8), 2, 2, rnd() < 0.5 ? '#f472b6' : '#fde047');
+            return plantCache[key] = c;
+        }
+        let meshPat = null;
+        function getMeshPat() { if (!meshPat) { const c = document.createElement('canvas'); c.width = c.height = 6; const g = c.getContext('2d'); g.strokeStyle = 'rgba(205,214,224,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(0, 6); g.lineTo(6, 0); g.moveTo(0, 0); g.lineTo(6, 6); g.stroke(); meshPat = ctx.createPattern(c, 'repeat'); } return meshPat; }
+
+        // ---------- upright scenery (drawn with the same projection as the grandstands) ----------
+        function drawGrounds(yMin, yMax) {
+            const L = getLayout(stadiumHomeSouth() ? 1 : -1);
+            const Z = camera.zoom, XS = X_STRETCH, CW = canvas.width, CH = canvas.height, P0 = toScreen(0, 0);
+            const SX = (u, Y) => P0.x + (u * XS + Y * camera.skew) * Z;
+            const SY = (Y, z) => P0.y + (Y * camera.pitch - z) * Z;
+            const poly = (p, fill) => { ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]); ctx.closePath(); ctx.fill(); };
+            const lw = Math.max(1.5, Z * 0.06);
+            const line = (x0, y0, x1, y1, col, w) => { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); };
+            const box = (x0, x1, y0, y1, z0, z1, ft, ff, fc) => {
+                const cx = camera.skew >= 0 ? x0 : x1;
+                poly([SX(cx, y0), SY(y0, z0), SX(cx, y1), SY(y1, z0), SX(cx, y1), SY(y1, z1), SX(cx, y0), SY(y0, z1)], fc);
+                poly([SX(x0, y1), SY(y1, z0), SX(x1, y1), SY(y1, z0), SX(x1, y1), SY(y1, z1), SX(x0, y1), SY(y1, z1)], ff);
+                poly([SX(x0, y0), SY(y0, z1), SX(x1, y0), SY(y0, z1), SX(x1, y1), SY(y1, z1), SX(x0, y1), SY(y1, z1)], ft);
+            };
+            const rail = (xa, ya, xb, yb, z, h, post) => {
+                const n = Math.max(1, Math.round(Math.hypot(xb - xa, yb - ya) / 1.75));
+                line(SX(xa, ya), SY(ya, z + h * 0.5), SX(xb, yb), SY(yb, z + h * 0.5), '#8e8878', lw * 0.8);
+                for (let i = 0; i <= n; i++) { const px = xa + (xb - xa) * i / n, py = ya + (yb - ya) * i / n; line(SX(px, py), SY(py, z), SX(px, py), SY(py, z + h), '#b9b3a4', lw); }
+                line(SX(xa, ya), SY(ya, z + h), SX(xb, yb), SY(yb, z + h), '#e4dfd2', lw * 1.2);
+            };
+            ctx.save(); ctx.imageSmoothingEnabled = false;
+            const items = L.items;
+            for (let i = 0; i < items.length; i++) {
+                const it = items[i]; if (it.y < yMin || it.y >= yMax) continue;
+                const sx = SX(it.x, it.y), sy = SY(it.y, 0), reach = it.r * XS * Z + 90;
+                if (sx < -reach || sx > CW + reach || sy < -it.hgt * Z - 40 || sy > CH + 60) continue;
+                if (it.k === 'fence') {
+                    const x0 = SX(it.xa, it.ya), y0 = SY(it.ya, 0), x1 = SX(it.xb, it.yb), y1 = SY(it.yb, 0), h = it.h * Z;
+                    const outer = it.kind === 'outer';
+                    poly([x0, y0, x1, y1, x1, y1 - h, x0, y0 - h], outer ? 'rgba(18,24,32,0.30)' : 'rgba(18,24,32,0.20)');
+                    ctx.fillStyle = getMeshPat(); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(x1, y1 - h); ctx.lineTo(x0, y0 - h); ctx.closePath(); ctx.fill();
+                    line(x0, y0 - h, x1, y1 - h, outer ? '#9aa5b4' : '#8a95a4', lw * 1.3);
+                    line(x0, y0 - lw, x1, y1 - lw, '#5d6674', lw);
+                    if (it.post) line(x0, y0, x0, y0 - h - lw, outer ? '#3f4856' : '#4a5362', lw * 1.7);
+                } else if (it.k === 'tree') {
+                    const spr = getTreeSprite(it.t, it.v), dh = it.h * Z, dw = dh * (spr.width / spr.height) * 1.12;
+                    ctx.fillStyle = 'rgba(0,0,0,0.24)'; ctx.beginPath(); ctx.ellipse(sx + dw * 0.08, sy, dw * 0.34, dw * 0.34 * camera.pitch, 0, 0, 6.2832); ctx.fill();
+                    ctx.drawImage(spr, Math.round(sx - dw / 2), Math.round(sy - dh + dh * 0.03), Math.round(dw), Math.round(dh));
+                } else if (it.k === 'bush') {
+                    const spr = getBushSprite(it.v), dh = it.h * Z, dw = dh * (spr.width / spr.height) * 1.1;
+                    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.beginPath(); ctx.ellipse(sx, sy, dw * 0.42, dw * 0.42 * camera.pitch * 0.7, 0, 0, 6.2832); ctx.fill();
+                    ctx.drawImage(spr, Math.round(sx - dw / 2), Math.round(sy - dh + dh * 0.05), Math.round(dw), Math.round(dh));
+                } else if (it.k === 'gate') {
+                    const g = it.g, col = slColors(g.s > 0), stone = ['#c4bdb0', '#9a9386', '#7d776b'];
+                    const pil = (px, py) => { box(px - 0.5, px + 0.5, py - 0.5, py + 0.5, 0, 3.3, stone[0], stone[1], stone[2]); box(px - 0.65, px + 0.65, py - 0.65, py + 0.65, 3.3, 3.55, '#e6e0d3', '#b9b2a3', '#8f897d'); box(px - 0.3, px + 0.3, py - 0.3, py + 0.3, 3.55, 4.1, '#fff2c4', '#f6d36b', '#c9a93f'); const gx = SX(px, py), gy = SY(py, 3.85), rr = Z * 1.5; const gr = ctx.createRadialGradient(gx, gy, 0, gx, gy, rr); gr.addColorStop(0, 'rgba(255,224,140,0.45)'); gr.addColorStop(1, 'rgba(255,224,140,0)'); ctx.fillStyle = gr; ctx.fillRect(gx - rr, gy - rr, rr * 2, rr * 2); };
+                    if (g.horiz) { pil(g.x, g.y - g.w / 2); if (g.kind === 'main') box(g.x - 0.35, g.x + 0.35, g.y - g.w / 2, g.y + g.w / 2, 3.3, 4.1, col.primary, col.secondary, col.secondary); pil(g.x, g.y + g.w / 2); }
+                    else { pil(g.x - g.w / 2, g.y); if (g.kind === 'main') box(g.x - g.w / 2, g.x + g.w / 2, g.y - 0.35, g.y + 0.35, 3.3, 4.2, col.primary, col.secondary, col.secondary); pil(g.x + g.w / 2, g.y); }
+                } else if (it.k === 'deck') {
+                    const d = it.d, r = deckRect(d), zt = 1.35, north = d.y < 0, W2 = 1.1;
+                    poly([SX(r.x0 - 0.3, r.y0), SY(r.y0, 0), SX(r.x1 + 0.3, r.y0), SY(r.y0, 0), SX(r.x1 + 0.3, r.y1 + 0.5), SY(r.y1 + 0.5, 0), SX(r.x0 - 0.3, r.y1 + 0.5), SY(r.y1 + 0.5, 0)], 'rgba(0,0,0,0.25)');
+                    box(r.x0, r.x1, r.y0, r.y1, 0, zt, '#a07f55', '#6f5339', '#59412d');
+                    for (let x = r.x0 + 0.8; x < r.x1; x += 0.8) line(SX(x, r.y1), SY(r.y1, 0.05), SX(x, r.y1), SY(r.y1, zt - 0.05), 'rgba(40,28,18,0.45)', lw * 0.7);
+                    for (let y = r.y0 + 0.55; y < r.y1; y += 0.55) line(SX(r.x0, y), SY(y, zt), SX(r.x1, y), SY(y, zt), 'rgba(60,40,24,0.35)', lw * 0.6);
+                    rail(r.x0, r.y0, r.x1, r.y0, zt, 1.0);
+                    if (!north) { rail(r.x0, r.y0, r.x0, r.y1, zt, 1.0); rail(r.x1, r.y0, r.x1, r.y1, zt, 1.0); }
+                    else { rail(r.x0, r.y0, r.x0, r.y1, zt, 1.0); rail(r.x1, r.y0, r.x1, r.y1, zt, 1.0); }
+                    const fy = north ? r.y1 - 0.75 : r.y0 + 0.75, fc = [slColors(true).primary, slColors(false).primary, slColors(true).primary];
+                    [-1.7, 0.1, 1.9].forEach((o, i) => { const fx = d.x + o, bx = SX(fx, fy), by = SY(fy, zt); ctx.fillStyle = fc[i]; ctx.fillRect(Math.round(bx - Z * 0.24), Math.round(by - Z * 0.95), Math.round(Z * 0.48), Math.round(Z * 0.95)); ctx.fillStyle = '#e8b890'; ctx.fillRect(Math.round(bx - Z * 0.17), Math.round(by - Z * 1.32), Math.round(Z * 0.34), Math.round(Z * 0.34)); ctx.fillStyle = i === 1 ? '#222' : '#5a3a22'; ctx.fillRect(Math.round(bx - Z * 0.19), Math.round(by - Z * 1.36), Math.round(Z * 0.38), Math.round(Z * 0.12)); });
+                    if (north) {
+                        for (let k = 0; k < 3; k++) box(d.x - W2, d.x + W2, r.y1 + 0.6 * k, r.y1 + 0.6 * (k + 1), 0, zt - 0.34 * (k + 1), '#b99568', '#8a6a46', '#6d5236');
+                        rail(r.x0, r.y1, d.x - W2 - 0.1, r.y1, zt, 1.0); rail(d.x + W2 + 0.1, r.y1, r.x1, r.y1, zt, 1.0);
+                    } else { rail(r.x0, r.y1, r.x1, r.y1, zt, 1.0); }
+                }
+            }
+            ctx.restore();
+        }
 
         function buildStadiumGround(homeSouth) {
             const Wd = FIELD_WIDTH_YARDS, AP = GND_AP, XP = GND_XP;
@@ -2559,7 +2850,7 @@ const PXS = (function () {
             const ov = g.createImageData(PW, PH); const d32 = new Uint32Array(ov.data.buffer);
             const pk = (r, gg, b, a) => ((a << 24) | (b << 16) | (gg << 8) | r) >>> 0;
             let seed = 9137; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
-            const hs = homeSouth ? 1 : -1;
+            const hs = homeSouth ? 1 : -1; const LAY = getLayout(hs);
             const hx = FIELD_LENGTH_YARDS / 2 + 14 - 30, hy = Wd / 2 + 11 - 30;   // same rounded oval as the running track
             const hsHalf = HOME_ST.w / 2, awHalf = AWAY_ST.w / 2 + 2;
             const clamp01 = v => Math.max(0, Math.min(1, v));
@@ -2606,6 +2897,15 @@ const PXS = (function () {
                             }
                         }
                     }
+                    // --- grounds v2: lawn, perimeter-fence footing, sidewalks ---
+                    if (col === 0 && o >= 5.4) { const a = clamp01((o - 5.4) / 3); const rr = r < 0.18 ? [12, 66, 22] : r > 0.9 ? [30, 100, 40] : r > 0.7 ? [20, 82, 30] : [16, 74, 26]; col = pk(rr[0], rr[1], rr[2], Math.round(a * 255)); }
+                    if ((Math.abs(Math.abs(Y) - PF.y) < 0.2 && X >= PF.x0 - 0.2 && X <= PF.x1 + 0.2) || ((Math.abs(X - PF.x0) < 0.2 || Math.abs(X - PF.x1) < 0.2) && Math.abs(Y) <= PF.y + 0.2)) col = pk(46, 52, 62, 255);
+                    { let bestE = -1, bestVert = true;
+                      for (let qi = 0; qi < LAY.paths.length; qi++) { const q = LAY.paths[qi]; if (X < q.x0 || X > q.x1 || Y < q.y0 || Y > q.y1) continue; const e = Math.min(X - q.x0, q.x1 - X, Y - q.y0, q.y1 - Y); if (e > bestE) { bestE = e; bestVert = (q.y1 - q.y0) >= (q.x1 - q.x0); } }
+                      if (bestE >= 0) {
+                          if (bestE < 0.14) col = pk(232, 227, 214, 255);
+                          else { const u = bestVert ? Y : X; let R0 = 201, G0 = 195, B0 = 181; if (((u + 400) % 1.5) < 0.07) { R0 -= 30; G0 -= 30; B0 -= 30; } const n = r < 0.07 ? -9 : r > 0.95 ? 7 : 0; col = pk(R0 + n, G0 + n, B0 + n, 255); }
+                      } }
                     d32[py * PW + px] = col;
                 }
             }
@@ -2850,39 +3150,16 @@ const PXS = (function () {
             ctx.restore();
         }
 
-        // ---------- night backdrop beyond the far side: hills, trees and apartment blocks ----------
-        function buildBackdrop() {
-            const W = 1280, H = 112; const { c, g, R } = mkSprite(W, H); const rnd = srng(515);
-            let y = 62; for (let x = 0; x < W; x += 4) { y += (rnd() - 0.5) * 5; y = Math.max(46, Math.min(74, y)); R(x, y, 4, H - y, '#0d1f1f'); }
-            const tree = (x, h) => { const w = Math.round(h * 0.45); const shade = rnd() < 0.5 ? '#0a2517' : '#0e3220';
-                for (let i = 0; i < 4; i++) { const tw = Math.max(3, Math.round(w * (0.45 + i * 0.18))), ty = H - 10 - h + i * Math.round(h / 4.5); R(x - tw / 2, ty, tw, Math.round(h / 3.5), shade); }
-                R(x - 1, H - 12, 2, 12, '#08150e'); };
-            for (let x = 4; x < W; x += 6 + Math.floor(rnd() * 8)) { const h = 18 + Math.floor(rnd() * 26); tree(x, h); if (x > W - 24) tree(x - W, h); }
-            [[130, 3], [520, 4], [980, 3]].forEach(([bx, n]) => {
-                let x = bx; for (let i = 0; i < n; i++) {
-                    const bw = 56 + Math.floor(rnd() * 36), bh = 34 + Math.floor(rnd() * 22), by = H - 6 - bh;
-                    R(x, by, bw, bh, '#3a3f4b'); R(x - 3, by - 6, bw + 6, 6, '#262a33'); R(x, by, bw, 1, '#565c6b');
-                    for (let wy = by + 5; wy < H - 14; wy += 9) for (let wx = x + 5; wx < x + bw - 8; wx += 10) R(wx, wy, 5, 5, rnd() < 0.42 ? '#f6d36b' : '#1d2a44');
-                    x += bw + 4 + Math.floor(rnd() * 8);
-                }
-            });
-            for (let x = 0; x < W; x += 5) { R(x, H - 8, 5, 8, '#0b1a12'); }
-            return c;
-        }
-
         function drawStadium() {
-            let topSideline = toScreen(camera.currentX, -(FIELD_WIDTH_YARDS / 2 + GND_AP)); let horizonY = topSideline.y;
+            let topSideline = toScreen(camera.currentX, -(FIELD_WIDTH_YARDS / 2 + GND_AP + FAR_LAWN)); let horizonY = topSideline.y;
             ctx.fillStyle = '#0a4a15'; ctx.fillRect(0, horizonY, canvas.width, canvas.height - horizonY);
             ctx.fillStyle = '#0b1120'; ctx.fillRect(0, 0, canvas.width, Math.max(0, horizonY));
             if (horizonY > 0) {
                 const sky = ctx.createLinearGradient(0, 0, 0, horizonY); sky.addColorStop(0, '#070b16'); sky.addColorStop(1, '#1a2542');
                 ctx.fillStyle = sky; ctx.fillRect(0, 0, canvas.width, horizonY);
-                if (!backdropCanvas) backdropCanvas = buildBackdrop();
-                const sc = canvas.height / 220; const tw = backdropCanvas.width * sc, dh = backdropCanvas.height * sc;
-                let off = (-(camera.currentX * camera.zoom * X_STRETCH * 0.2)) % tw; if (off > 0) off -= tw;
-                ctx.imageSmoothingEnabled = false;
-                for (let x = off; x < canvas.width; x += tw) ctx.drawImage(backdropCanvas, Math.round(x), Math.round(horizonY - dh + 2), Math.round(tw) + 1, Math.round(dh));
             }
+            const hz = ctx.createLinearGradient(0, horizonY, 0, horizonY + 70); hz.addColorStop(0, 'rgba(0,12,0,0.45)'); hz.addColorStop(1, 'rgba(0,12,0,0)');
+            ctx.fillStyle = hz; ctx.fillRect(0, Math.max(0, horizonY), canvas.width, 70);
         }
 
         function drawGoalpost(yardX) {
@@ -3446,7 +3723,9 @@ const PXS = (function () {
                 ctx.restore();
             }
 
+            drawGrounds(-1e9, FAR_T);
             drawStands(-1);
+            drawGrounds(FAR_T, 0);
             drawSideline(-1);
             allEntities.forEach(p => {
                 let pScreen = toScreen(p.x, p.y); let pScale = camera.zoom * 0.04; 
@@ -3558,7 +3837,9 @@ const PXS = (function () {
                 ctx.restore();
             });
             drawSideline(1);
+            drawGrounds(0, NEAR_T);
             drawStands(1);
+            drawGrounds(NEAR_T, 1e9);
 
             if (gameState !== 'COIN_TOSS' && !players.some(p => p.hasBall) && gameState !== 'PENALTY_SEQUENCE') {
                 let bScreen = toScreen(ball.x, ball.y); let bScale = camera.zoom * 0.06; let visualHeight = ball.z * camera.zoom * 0.6; 
@@ -3606,7 +3887,7 @@ const PXS = (function () {
             });
 
             let kicker = players.find(p => p.isKicker && ((isMultiplayer && isMpHost) ? !p.isCPU : !p.isCPU));
-            if (isMultiplayer && isMpClient) kicker = players.find(p => p.isKicker && p.isCPU);
+            if (isMultiplayer && isMpClient) kicker = players.find(p => p.isKicker && p.isCPU === !!window._mpClientKicks) || players.find(p => p.isKicker);
 
             if (kicker && (gameState === 'KICK_POWER' || gameState === 'KICK_DIR')) {
                 let kScreen = toScreen(kicker.x, kicker.y);
@@ -3737,6 +4018,7 @@ const PXS = (function () {
             let frameTime = timestamp - lastTime; lastTime = timestamp;
             if (frameTime > 100) frameTime = 100; 
 
+            if (canvas.style.display === 'none') { accumulator = 0; requestAnimationFrame(loop); return; } // hub is showing: nothing to simulate or draw
             accumulator += frameTime;
             while (accumulator >= timeStep) {
                 update();
@@ -3750,7 +4032,11 @@ const PXS = (function () {
         document.fonts.ready.then(function () {
             initTextures(); 
             window.addEventListener('resize', resize); resize(); 
-            startIntroSequence();
+            // boot straight to the hub: no intro scene
+            isIntroScene = false; introScriptState = 'FINISHED';
+            ['intro-overlay','skip-intro-btn','btn-pause','scoreboard','hud','play-clock','down-distance','ui-container'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+            canvas.style.display = 'none';
+            const hubEl = document.getElementById('hub-container'); if (hubEl) hubEl.style.display = 'flex'; switchHubTab('HOME');
             requestAnimationFrame(loop);
         });
     </script>
