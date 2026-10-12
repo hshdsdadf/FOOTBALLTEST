@@ -582,6 +582,7 @@
 
         window.updateFieldLogo = function(team) {
             fieldTeam = team; pixelFieldCanvas = buildPixelField(team);
+            setTimeout(() => { try { if (!sidelineTurf) sidelineTurf = buildSidelineTurf(); } catch (e) {} }, 60);
             let svgStr = getHelmetSVG(team.c1, team.c2, team.name.charAt(0)).replace(/style="[^"]*"/, 'width="512" height="512"');
             let dataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgStr);
             let img = new Image(); img.onload = function() { fieldLogoImg = img; }; img.src = dataUrl;
@@ -2596,7 +2597,7 @@ const PXS = (function () {
                     const Y = py / FPX - AP - Wd / 2; const qy = Math.max(Math.abs(Y) - hy, 0);
                     for (let px = 0; px < PW; px++) {
                         const X = px / FPX - XP; const qx = Math.max(Math.abs(X - FIELD_LENGTH_YARDS / 2) - hx, 0);
-                        const dist = Math.hypot(qx, qy), pr = dist - TK.Rc; let out = 0;
+                        const dist = Math.sqrt(qx * qx + qy * qy), pr = dist - TK.Rc; let out = 0;
                         if (pr >= 0 && pr < trackW) {
                             const lane = Math.floor(pr / TK.laneW), lp = (pr * FPX) % (TK.laneW * FPX), r = rnd();
                             let c = REDS[Math.floor(r * 5)];
@@ -2873,18 +2874,21 @@ const PXS = (function () {
 
         function drawSideline(sign) {
             const isSouth = sign > 0; const items = slLayout(sign); const col = slColors(isSouth);
-            const u = Math.max(2, Math.round(camera.zoom * 0.04 * 2.9 * 1.22)); const zoomX = camera.zoom * X_STRETCH;
+            const u = Math.max(0.45, camera.zoom * 0.04 * 2.9 * 1.22); const zoomX = camera.zoom * X_STRETCH;
+            const FR = (x, y, w, h) => { const x0 = Math.round(x), y0 = Math.round(y); ctx.fillRect(x0, y0, Math.max(1, Math.round(x + w) - x0), Math.max(1, Math.round(y + h) - y0)); };
             const depth = yd => Math.max(u, Math.round(yd * camera.zoom * camera.pitch));
             const cheer = (gameState === 'TOUCHDOWN_CELEBRATION'); const now = Date.now();
-            const blit = (c, cx, base) => { const w = c.width * u, h = c.height * u; ctx.drawImage(c, Math.round(cx - w / 2), Math.round(base - h), w, h); };
-            const shadow = (cx, base, w) => { ctx.fillStyle = 'rgba(0,0,0,0.30)'; ctx.fillRect(Math.round(cx - w * u / 2), Math.round(base - u), w * u, 2 * u); };
-            const drawPx = (c, cx, feetY, fc) => { const w = PXS.W * u, h = PXS.H * u, top = Math.round(feetY - PXS.GROUND * u);
-                if (fc < 0) { ctx.save(); ctx.translate(Math.round(cx), 0); ctx.scale(-1, 1); ctx.drawImage(c, -PXS.HX * u, top, w, h); ctx.restore(); }
-                else ctx.drawImage(c, Math.round(cx) - PXS.HX * u, top, w, h); };
+            const blit = (c, cx, base) => { const w = Math.round(c.width * u), h = Math.round(c.height * u); ctx.drawImage(c, Math.round(cx - w / 2), Math.round(base - h), w, h); };
+            const shadow = (cx, base, w) => { ctx.fillStyle = 'rgba(0,0,0,0.30)'; FR(Math.round(cx - w * u / 2), Math.round(base - u), w * u, 2 * u); };
+            const drawPx = (c, cx, feetY, fc) => { const w = Math.round(PXS.W * u), h = Math.round(PXS.H * u), top = Math.round(feetY - PXS.GROUND * u), hx = Math.round(PXS.HX * u);
+                if (fc < 0) { ctx.save(); ctx.translate(Math.round(cx), 0); ctx.scale(-1, 1); ctx.drawImage(c, -hx, top, w, h); ctx.restore(); }
+                else ctx.drawImage(c, Math.round(cx) - hx, top, w, h); };
+            const colSig = [col.jersey, col.pants, col.helmet, col.stripe, col.detail, col.primary, col.secondary].join('');
+            const getSpr = (it, fc, ch, br) => { const sig = fc + '|' + (ch ? 1 : 0) + '|' + br + '|' + colSig; if (it._sig !== sig) { it._sig = sig; it._spr = slPx(slPxOpts(it, col, fc, ch, br)); } return it._spr; };
             const slFacing = it => { if (!it.watch) return it.flip ? 1 : -1; const dx = camera.currentX + (it.off || 0) - it.x;
                 if (it._f === undefined) it._f = dx >= 0 ? 1 : -1; else if (dx > 2) it._f = 1; else if (dx < -2) it._f = -1; return it._f; };
             const coolerSpr = slSprite('cooler', SL_COOLER, { k: '#1f2937', W: '#f8fafc', O: '#f97316', l: '#fdba74', D: '#c2410c' });
-            ctx.save(); ctx.imageSmoothingEnabled = false;
+            ctx.save(); ctx.imageSmoothingEnabled = u < 1.6;
             items.forEach(it => {
                 const sc = toScreen(it.x, it.y); if (sc.x < -250 || sc.x > canvas.width + 250 || sc.y < -200 || sc.y > canvas.height + 200) return;
                 const cx = Math.round(sc.x), by = Math.round(sc.y);
@@ -2895,39 +2899,39 @@ const PXS = (function () {
                 if (it.k === 'bench' || it.k === 'benchFace') {
                     const w = Math.round(it.len * zoomX), x0 = cx - Math.round(w / 2), d = depth(0.55), half = Math.round(d / 2);
                     const surfY = by - 4 * u - half, faceY = surfY + d, legTop = faceY + 2 * u, ground = by + half;
-                    const drawFace = () => { ctx.fillStyle = '#6b4220'; ctx.fillRect(x0, faceY, w, 2 * u); ctx.fillStyle = '#8a5a2b'; ctx.fillRect(x0, faceY, w, u); };
+                    const drawFace = () => { ctx.fillStyle = '#6b4220'; FR(x0, faceY, w, 2 * u); ctx.fillStyle = '#8a5a2b'; FR(x0, faceY, w, u); };
                     if (it.k === 'benchFace') { drawFace(); return; }
-                    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(x0 + u, ground - u, w, 2 * u);
-                    ctx.fillStyle = '#374151'; [2 * u, Math.round(w / 2) - u, w - 4 * u].forEach(lx => ctx.fillRect(x0 + lx, legTop, 2 * u, ground - legTop));
-                    ctx.fillStyle = '#c08a4b'; ctx.fillRect(x0, surfY, w, d); ctx.fillStyle = '#d9a566'; ctx.fillRect(x0, surfY, w, Math.max(1, Math.round(u / 2)));
-                    ctx.fillStyle = '#a06f35'; for (let sx = 0; sx < w; sx += 6 * u) ctx.fillRect(x0 + sx, surfY, 1, d);
+                    ctx.fillStyle = 'rgba(0,0,0,0.28)'; FR(x0 + u, ground - u, w, 2 * u);
+                    ctx.fillStyle = '#374151'; [2 * u, Math.round(w / 2) - u, w - 4 * u].forEach(lx => FR(x0 + lx, legTop, 2 * u, ground - legTop));
+                    ctx.fillStyle = '#c08a4b'; FR(x0, surfY, w, d); ctx.fillStyle = '#d9a566'; FR(x0, surfY, w, Math.max(1, Math.round(u / 2)));
+                    ctx.fillStyle = '#a06f35'; for (let sx = 0; sx < w; sx += 6 * u) FR(x0 + sx, surfY, 1, d);
                     if (!isSouth) drawFace();
                     // helmet resting at the left end + rolled team towel at the right end
                     const mid = surfY + Math.round(d / 2);
-                    ctx.fillStyle = col.helmet; ctx.fillRect(x0 + u, mid - 3 * u, 4 * u, 3 * u); ctx.fillStyle = col.stripe; ctx.fillRect(x0 + 2 * u + Math.round(u / 2), mid - 3 * u, u, 2 * u); ctx.fillStyle = '#9ca3af'; ctx.fillRect(x0 + 3 * u, mid - 2 * u, 2 * u, u);
-                    ctx.fillStyle = col.primary; ctx.fillRect(x0 + w - 4 * u, mid - 2 * u, 3 * u, 2 * u); ctx.fillStyle = shadeHex(col.primary, -40); ctx.fillRect(x0 + w - 4 * u, mid - u, 3 * u, u);
+                    ctx.fillStyle = col.helmet; FR(x0 + u, mid - 3 * u, 4 * u, 3 * u); ctx.fillStyle = col.stripe; FR(x0 + 2 * u + Math.round(u / 2), mid - 3 * u, u, 2 * u); ctx.fillStyle = '#9ca3af'; FR(x0 + 3 * u, mid - 2 * u, 2 * u, u);
+                    ctx.fillStyle = col.primary; FR(x0 + w - 4 * u, mid - 2 * u, 3 * u, 2 * u); ctx.fillStyle = shadeHex(col.primary, -40); FR(x0 + w - 4 * u, mid - u, 3 * u, u);
                 } else if (it.k === 'sit') {
                     const half = Math.round(depth(0.55) / 2); const fc = slFacing(it);
-                    const spr = slPx(slPxOpts(it, col, fc, false, idle ? 1 : 0)); drawPx(spr, cx, by + half + u, fc);
+                    const spr = getSpr(it, fc, false, idle ? 1 : 0); drawPx(spr, cx, by + half + u, fc);
                 } else if (it.k === 'table') {
                     const w = Math.round(3.4 * zoomX), x0 = cx - Math.round(w / 2), d = depth(0.8), half = Math.round(d / 2);
                     const surfY = by - 8 * u - half, clothY = surfY + d, ground = by + half;
-                    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(x0 + u, ground - u, w, 2 * u);
-                    ctx.fillStyle = '#6b7280'; ctx.fillRect(x0 + 2 * u, clothY + 5 * u, 2 * u, ground - clothY - 5 * u); ctx.fillRect(x0 + w - 4 * u, clothY + 5 * u, 2 * u, ground - clothY - 5 * u);
-                    ctx.fillStyle = '#f1f5f9'; ctx.fillRect(x0, surfY, w, d); ctx.fillStyle = '#cbd5e1'; ctx.fillRect(x0, surfY, w, Math.max(1, Math.round(u / 2)));
-                    ctx.fillStyle = col.primary; ctx.fillRect(x0 + u, clothY, w - 2 * u, 5 * u); ctx.fillStyle = shadeHex(col.primary, -40); ctx.fillRect(x0 + u, clothY + 4 * u, w - 2 * u, u);
-                    ctx.fillStyle = col.secondary; ctx.fillRect(x0 + u, clothY, w - 2 * u, u);
+                    ctx.fillStyle = 'rgba(0,0,0,0.28)'; FR(x0 + u, ground - u, w, 2 * u);
+                    ctx.fillStyle = '#6b7280'; FR(x0 + 2 * u, clothY + 5 * u, 2 * u, ground - clothY - 5 * u); FR(x0 + w - 4 * u, clothY + 5 * u, 2 * u, ground - clothY - 5 * u);
+                    ctx.fillStyle = '#f1f5f9'; FR(x0, surfY, w, d); ctx.fillStyle = '#cbd5e1'; FR(x0, surfY, w, Math.max(1, Math.round(u / 2)));
+                    ctx.fillStyle = col.primary; FR(x0 + u, clothY, w - 2 * u, 5 * u); ctx.fillStyle = shadeHex(col.primary, -40); FR(x0 + u, clothY + 4 * u, w - 2 * u, u);
+                    ctx.fillStyle = col.secondary; FR(x0 + u, clothY, w - 2 * u, u);
                     const sc0 = surfY + Math.round(d / 2) + u;
                     [0.2, 0.42, 0.64].forEach(f => blit(coolerSpr, x0 + Math.round(w * f), sc0));
                     const bs = slSprite('bottle', SL_BOTTLE, { O: '#f97316', W: '#f8fafc' });
                     [0.8, 0.86].forEach(f => blit(bs, x0 + Math.round(w * f), sc0));
-                    ctx.fillStyle = '#f8fafc'; ctx.fillRect(x0 + Math.round(w * 0.93), sc0 - 4 * u, 2 * u, 4 * u); ctx.fillStyle = '#cbd5e1'; ctx.fillRect(x0 + Math.round(w * 0.93), sc0 - 4 * u, 2 * u, u);
+                    ctx.fillStyle = '#f8fafc'; FR(x0 + Math.round(w * 0.93), sc0 - 4 * u, 2 * u, 4 * u); ctx.fillStyle = '#cbd5e1'; FR(x0 + Math.round(w * 0.93), sc0 - 4 * u, 2 * u, u);
                 } else if (it.k === 'cooler') {
                     shadow(cx, by + u, 15); blit(coolerSpr, cx - 3 * u, by + u); blit(coolerSpr, cx + 4 * u, by + u);
                 } else {
                     // standing people: players, coaches, trainer, water boy (same renderer as on-field players)
                     shadow(cx, by + u, 9);
-                    const fc = slFacing(it); const spr = slPx(slPxOpts(it, col, fc, cheer, idle ? 1 : 0));
+                    const fc = slFacing(it); const spr = getSpr(it, fc, cheer, idle ? 1 : 0);
                     drawPx(spr, cx, by + u - hop, fc);
                 }
             });
@@ -3184,10 +3188,10 @@ const PXS = (function () {
                     pitch: pitchQ, lean: leanA, plant: plantPose, bob: bobPx, breath: breathPx,
                     armA1: armAngle1, armA2: frontArmA, armB1: aB1, armB2: frontArmB, legA1: legAngle1, legA2: legAngle2, legK1: kn1, legK2: kn2
                 });
-                let spx = Math.max(2, Math.round(pScale * 2.9 * 1.22));
-                ctx.imageSmoothingEnabled = false;
+                let spx = Math.max(0.45, pScale * 2.9 * 1.22);
+                ctx.imageSmoothingEnabled = spx < 1.6;
                 let spriteTop = Math.round(3 * pScale + (-diveHeight + (plantPose ? 0 : groundDrop)) * pScale - PXS.GROUND * spx);
-                ctx.drawImage(spriteCanvas, -PXS.HX * spx, spriteTop, PXS.W * spx, PXS.H * spx);
+                ctx.drawImage(spriteCanvas, Math.round(-PXS.HX * spx), spriteTop, Math.round(PXS.W * spx), Math.round(PXS.H * spx));
                 ctx.restore();
             });
             drawSideline(1);
