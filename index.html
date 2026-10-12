@@ -891,7 +891,8 @@
             camera.targetX = data.c.tx; camera.targetY = data.c.ty; camera.targetZ = data.c.z;
 
             // Sync UI locally using state flag
-            syncUI(data.ui);
+            window._uiN = ((window._uiN || 0) + 1) % 30;
+            if (data.ui === 'CLIENT_KICKING' || data.ui !== window._lastUi || window._uiN === 0) { window._lastUi = data.ui; syncUI(data.ui); }
 
             // Reconstruct arrays if needed
             if (players.length !== data.pls.length) {
@@ -923,11 +924,14 @@
             }
 
             // Sync TD Banner
-            if (data.tdShow) {
-                tdBannerMain.textContent = data.tdM; tdBannerSub.textContent = data.tdS;
-                tdBanner.classList.remove('hide'); tdBanner.classList.add('show');
-            } else {
-                tdBanner.classList.remove('show'); tdBanner.classList.add('hide');
+            if (data.tdShow !== window._lastTd) {
+                window._lastTd = data.tdShow;
+                if (data.tdShow) {
+                    tdBannerMain.textContent = data.tdM; tdBannerSub.textContent = data.tdS;
+                    tdBanner.classList.remove('hide'); tdBanner.classList.add('show');
+                } else {
+                    tdBanner.classList.remove('show'); tdBanner.classList.add('hide');
+                }
             }
 
             // Target assignment
@@ -940,17 +944,18 @@
             }
 
             // Update HUD text if needed based on state
+            let hudHtml = "";
             if (['PRE_SNAP', 'PLAY_CALL'].includes(gameState)) { 
                 if (offenseDirection === 1) { // Client is Offense
-                    hud.innerHTML = `<div style="color: #3b82f6; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">TAP ACT TO SNAP</div>`;
+                    hudHtml = `<div style="color: #3b82f6; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">TAP ACT TO SNAP</div>`;
                 } else { // Client is Defense
-                    hud.innerHTML = `<div style="color: #ef4444; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">DEFENSE: GET READY!</div>`;
+                    hudHtml = `<div style="color: #ef4444; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">DEFENSE: GET READY!</div>`;
                 }
-            } else {
-                hud.innerHTML = "";
             }
+            if (hudHtml !== window._lastHud) { window._lastHud = hudHtml; hud.innerHTML = hudHtml; }
 
-            updateScoreboard();
+            const sbKey = [playerScore, cpuScore, quarter, Math.ceil(gameClock), down, lineOfScrimmage, firstDownLine, offenseDirection, gameState, isPAT].join('|');
+            if (sbKey !== window._lastSb) { window._lastSb = sbKey; updateScoreboard(); }
         }
 
         function getClientInput() {
@@ -1888,7 +1893,11 @@
         function update() {
             // MULTIPLAYER CLIENT BYPASS
             if (isMultiplayer && isMpClient) {
-                if (mpConnection && mpConnection.open) mpConnection.send(getClientInput());
+                if (mpConnection && mpConnection.open) {
+                    const inp = getClientInput(); const ik = inp.dx + '|' + inp.dy + '|' + inp.act;
+                    window._mpIn = ((window._mpIn || 0) + 1) % 6;
+                    if (inp.pass || ik !== window._mpInKey || window._mpIn === 0) { window._mpInKey = ik; mpConnection.send(inp); }
+                }
                 
                 // Allow client kicking processing (visuals only)
                 let clientKicking = ((isFieldGoalPlay || isPAT || isPuntPlay) ? (offenseDirection === 1) : (playState === 'RECEIVE'));
@@ -1919,18 +1928,18 @@
                 players.forEach(p => {
                     if (p.targetX !== undefined) {
                         let prevX = p.x; let prevY = p.y;
-                        p.x += (p.targetX - p.x) * 0.6;
-                        p.y += (p.targetY - p.y) * 0.6;
-                        // Client calculates anim locally based on movement
+                        p.x += (p.targetX - p.x) * 0.35;
+                        p.y += (p.targetY - p.y) * 0.35;
+                        // Client calculates anim locally based on movement (with grace so 30Hz packets don't flicker legs)
                         let pSpeedSqr = (p.x - prevX)**2 + (p.y - prevY)**2;
-                        if (pSpeedSqr > 0.001) p.animTimer += 0.3; else p.animTimer = 0;
+                        if (pSpeedSqr > 0.00012) { p.animTimer += 0.3; p._still = 0; } else if ((p._still = (p._still || 0) + 1) > 6) p.animTimer = 0;
                     }
                 });
 
                 refs.forEach(r => {
                     if (r.targetX !== undefined) {
-                        r.x += (r.targetX - r.x) * 0.6;
-                        r.y += (r.targetY - r.y) * 0.6;
+                        r.x += (r.targetX - r.x) * 0.35;
+                        r.y += (r.targetY - r.y) * 0.35;
                     }
                 });
 
@@ -2415,6 +2424,14 @@ const PXS = (function () {
     const HEADREF = ['.CCCC..', 'CCCCCCB', '.SSSS..', '.SSeS..', '..kk...', '.......'];
     const HEADSET = ['.CCCC..', 'CCCCCCB', '.SSSS..', 'ESSeS..', '.EkkM..', '.......'];
     const hw = [2.6, 2.9, 2.5, 2.4, 2.3, 2.3]; // torso rows -5..0
+    const spriteCache = new Map();
+    function cached(o) {
+        const q = {}; for (const k in o) { const v = o[k]; q[k] = (typeof v === 'number') ? Math.round(v * 16) / 16 : v; }
+        const key = JSON.stringify(q);
+        let c = spriteCache.get(key);
+        if (!c) { if (spriteCache.size > 1500) spriteCache.clear(); const sl = newSlot(); render(q, sl); c = sl.cv; spriteCache.set(key, c); }
+        return c;
+    }
     function render(o, slot) {
         const sl = slot || defaultSlot; cv = sl.cv; cx = sl.cx; img = sl.img; buf = sl.buf;
         buf.fill(0);
@@ -2516,7 +2533,7 @@ const PXS = (function () {
         if (v === 3) return S(0, -0.1, 0.15, 0.4, 0.4, 0.05, -0.28, 0.05, 0.25);                              // weight on one leg
         return S(0, 0.2, 0.0, 0.6, 1.2, 0.18, -0.05, 0.1, 0.1);
     }
-    return { render, newSlot, stance, idle, W, H, HX, GROUND };
+    return { render, cached, newSlot, stance, idle, W, H, HX, GROUND };
 })();
 
         function drawStadium() {
@@ -2854,8 +2871,7 @@ const PXS = (function () {
         const slPxCache = {};
         function slPx(o) {
             const k = JSON.stringify(o); if (slPxCache[k]) return slPxCache[k];
-            const src = PXS.render(o); const c = document.createElement('canvas'); c.width = PXS.W; c.height = PXS.H;
-            c.getContext('2d').drawImage(src, 0, 0); slPxCache[k] = c; return c;
+            const slot = PXS.newSlot(); PXS.render(o, slot); slPxCache[k] = slot.cv; return slot.cv;
         }
         function slPxOpts(it, col, facing, cheer, breath) {
             const sh = shadeHex, p = col.primary, s = col.secondary, lightP = slLum(p) > 150;
@@ -3185,13 +3201,12 @@ const PXS = (function () {
                 else { let id = PXS.idle(p.pxSeed); armAngle1 = id.armA1; armAngle2 = id.armA2; legAngle1 = id.legA1; legAngle2 = id.legA2; aB1 = id.armB1; aB2 = id.armB2; kn1 = id.legK1; kn2 = id.legK2; plantPose = true; breathPx = (Math.floor(Date.now() / 520 + p.pxSeed * 9) % 2 === 0) ? 0 : 1; }
                 let frontArmA = armAngle2, frontArmB = aB2;
                 if (p.hasBall && !isStancePose) { if (p.isDiving) { frontArmA = -Math.PI * 0.8; frontArmB = 0.1; } else { frontArmA = 0.1; frontArmB = 2.0; } }
-                if (!p._pxSlot) p._pxSlot = PXS.newSlot();
-                let spriteCanvas = PXS.render({
+                let spriteCanvas = PXS.cached({
                     facing: p.facing, girth: (p.girth || 1.0), isRef: !!p.isRef, hasFlag: !!p.hasFlag, hasBall: !!p.hasBall,
                     skin: cSkin, jersey: cJersey, pants: cPants, helmet: cHelmet, jerseyDetail: cJerseyDetail, helmetStripe: cHelmetStripe, pantsStripe: cPantsStripe,
                     pitch: pitchQ, lean: leanA, plant: plantPose, bob: bobPx, breath: breathPx,
                     armA1: armAngle1, armA2: frontArmA, armB1: aB1, armB2: frontArmB, legA1: legAngle1, legA2: legAngle2, legK1: kn1, legK2: kn2
-                }, p._pxSlot);
+                });
                 let spx = Math.max(0.45, pScale * 2.9 * 1.22);
                 ctx.imageSmoothingEnabled = spx < 1.6;
                 let spriteTop = Math.round(3 * pScale + (-diveHeight + (plantPose ? 0 : groundDrop)) * pScale - PXS.GROUND * spx);
