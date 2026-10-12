@@ -1139,7 +1139,7 @@
         }
 
         function triggerTackle(carrier, hitter) {
-            if (gameState !== 'PLAYING') return; gameState = 'TACKLED'; isAimingPass = false; carrier.tackleTimer = 0; carrier.isDiving = false; carrier.hitDirX = carrier.x - hitter.x; carrier.hitDirY = carrier.y - hitter.y;
+            if (gameState !== 'PLAYING') return; gameState = 'TACKLED'; isAimingPass = false; aimPointerId = null; carrier.tackleTimer = 0; carrier.isDiving = false; carrier.hitDirX = carrier.x - hitter.x; carrier.hitDirY = carrier.y - hitter.y;
             let hLen = Math.sqrt(carrier.hitDirX * carrier.hitDirX + carrier.hitDirY * carrier.hitDirY) || 1; carrier.hitDirX /= hLen; carrier.hitDirY /= hLen;
             let gangTacklers = players.filter(pl => pl !== hitter && pl !== carrier && pl.isCPU !== carrier.isCPU && Math.sqrt(Math.pow(pl.x - carrier.x, 2) + Math.pow(pl.y - carrier.y, 2)) < 1.6);
             [hitter, ...gangTacklers].forEach(t => { let dx = carrier.x - t.x, dy = carrier.y - t.y; let len = Math.sqrt(dx * dx + dy * dy) || 1; t.tackleHitDirX = dx / len; t.tackleHitDirY = dy / len; t.isTackling = true; t.tackleAnimTimer = 0; t.isLunging = false; t.isMissedTackle = false; t.isDiving = false; });
@@ -1492,6 +1492,11 @@
             ball.vy = direction * dirX * 0.22; ball.isKicked = true; ball.destX = ball.x; ball.destY = ball.y;
             let tempZ = ball.z, tempVz = ball.vz;
             while (tempZ >= 0) { ball.destX += ball.vx; ball.destY += ball.vy; tempZ += tempVz; tempVz -= 0.008; }
+            if (!isFieldGoalPlay) { // kickoffs / punts / PAT-free kicks must land inbounds
+                let maxY = FIELD_WIDTH_YARDS / 2 - 3; let offY = ball.destY - ball.y;
+                let lo = -maxY - ball.y, hi = maxY - ball.y;
+                if (offY > hi || offY < lo) { let clamped = Math.max(lo, Math.min(hi, offY)); let scale = offY !== 0 ? clamped / offY : 0; ball.vy *= scale; ball.destY = ball.y + clamped; }
+            }
             gameState = 'BALL_IN_AIR'; camera.target = ball; 
         }
 
@@ -1769,7 +1774,7 @@
             }
         }
 
-        function snapBall() { gameState = 'PLAYING'; let qb = players.find(p => p.isQB && (offenseDirection === -1 ? !p.isCPU : p.isCPU)); if (qb) qb.hasBall = true; hud.innerHTML = ""; hideUI(); mainClockStarted = true; }
+        function snapBall() { gameState = 'PLAYING'; isAimingPass = false; aimPointerId = null; players.forEach(p => { p.tackleTimer = 0; }); let qb = players.find(p => p.isQB && (offenseDirection === -1 ? !p.isCPU : p.isCPU)); if (qb) qb.hasBall = true; hud.innerHTML = ""; hideUI(); mainClockStarted = true; }
 
         function getPlaySVG(title, playRoutesHTML) {
             return `<div class="play-card" onclick="selectPlay('${title.replace(/ /g, "_")}')"><div class="play-title">${title.replace(/_/g, " ")}</div><svg class="playbook-svg menu-icon" viewBox="0 0 120 120"><rect x="0" y="0" width="120" height="120" fill="#0f661e" /><path d="M0 10 H120 M0 30 H120 M0 50 H120 M0 70 H120 M0 90 H120 M0 110 H120" stroke="#0a4a15" stroke-width="2" /><line x1="0" y1="50" x2="120" y2="50" stroke="#ffe600" stroke-width="2" stroke-dasharray="4,4"/> <line x1="0" y1="20" x2="120" y2="20" stroke="#00f0ff" stroke-width="2" stroke-dasharray="4,4"/> ${playRoutesHTML}</svg></div>`;
@@ -2320,7 +2325,7 @@
                 if (ballCarrier) {
                     ball.x = ballCarrier.x; ball.y = ballCarrier.y; ball.z = 1.0; let reachedEndzone = ballCarrier.isCPU ? (ballCarrier.x >= 110) : (ballCarrier.x <= 10);
                     if (gameState === 'PLAYING' && reachedEndzone) handleTouchdown(ballCarrier);
-                    else if (gameState === 'PLAYING' && (ballCarrier.y <= -FIELD_WIDTH_YARDS/2 || ballCarrier.y >= FIELD_WIDTH_YARDS/2)) { ballCarrier.y = Math.max(-FIELD_WIDTH_YARDS/2, Math.min(FIELD_WIDTH_YARDS/2, ballCarrier.y)); if (!ballCarrier.tackleTimer) { endPlay("OUT OF BOUNDS"); } }
+                    else if (gameState === 'PLAYING' && (ballCarrier.y <= -FIELD_WIDTH_YARDS/2 || ballCarrier.y >= FIELD_WIDTH_YARDS/2)) { ballCarrier.y = Math.max(-FIELD_WIDTH_YARDS/2, Math.min(FIELD_WIDTH_YARDS/2, ballCarrier.y)); endPlay("OUT OF BOUNDS"); }
                 }
 
                 if (gameState === 'TACKLED' && ballCarrier) {
@@ -3919,6 +3924,7 @@ const PXS = (function () {
             let frameTime = timestamp - lastTime; lastTime = timestamp;
             if (frameTime > 100) frameTime = 100; 
 
+            if (canvas.style.display === 'none') { accumulator = 0; requestAnimationFrame(loop); return; } // hub is showing: nothing to simulate or draw
             accumulator += frameTime;
             while (accumulator >= timeStep) {
                 update();
@@ -3932,7 +3938,11 @@ const PXS = (function () {
         document.fonts.ready.then(function () {
             initTextures(); 
             window.addEventListener('resize', resize); resize(); 
-            startIntroSequence();
+            // boot straight to the hub: no intro scene
+            isIntroScene = false; introScriptState = 'FINISHED';
+            ['intro-overlay','skip-intro-btn','btn-pause','scoreboard','hud','play-clock','down-distance','ui-container'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+            canvas.style.display = 'none';
+            const hubEl = document.getElementById('hub-container'); if (hubEl) hubEl.style.display = 'flex'; switchHubTab('HOME');
             requestAnimationFrame(loop);
         });
     </script>
