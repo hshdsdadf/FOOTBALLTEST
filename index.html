@@ -988,9 +988,9 @@
                 else if (meterValue <= 0) { meterValue = -meterValue; meterDelta = Math.abs(meterDelta); } 
             } 
             else if (gameState === 'KICK_DIR') { 
-                dirValue += dirDelta; 
-                if (dirValue >= 1) { dirValue = 1; dirDelta = -Math.abs(dirDelta); } 
-                else if (dirValue <= -1) { dirValue = -1; dirDelta = Math.abs(dirDelta); } 
+                dirValue += dirDelta; let aimLim = kickAimLimit();
+                if (dirValue >= aimLim) { dirValue = aimLim; dirDelta = -Math.abs(dirDelta); } 
+                else if (dirValue <= -aimLim) { dirValue = -aimLim; dirDelta = Math.abs(dirDelta); } 
             }
         }
 
@@ -1046,7 +1046,8 @@
         function screenInputToWorldDir(inputX, inputY) {
             let len = Math.sqrt(inputX * inputX + inputY * inputY); if (len < 0.0001) return { x: 0, y: 0, active: false };
             let ix = inputX / len, iy = inputY / len; let worldDy = iy / camera.pitch; let worldDx = (ix - worldDy * camera.skew) / X_STRETCH;
-            return { x: worldDx, y: worldDy, active: true };
+            let wl = Math.sqrt(worldDx * worldDx + worldDy * worldDy) || 1; // normalize in world space so every direction is the same speed
+            return { x: worldDx / wl, y: worldDy / wl, active: true };
         }
 
         function createRef(x, y, id) {
@@ -1484,7 +1485,9 @@
 
         function startKickRunUp(power, direction) { lockedPower = power; lockedDir = direction; gameState = 'KICKER_RUN_UP'; camera.target = players.find(p => p.isKicker) || ball; mainClockStarted = true; }
 
+        function kickAimLimit() { return isFieldGoalPlay ? 1 : 0.45; } // max sideways aim for kickoffs / punts
         function kickTheBall(power, direction) {
+            if (!isFieldGoalPlay) direction = Math.max(-kickAimLimit(), Math.min(kickAimLimit(), direction));
             let dirX = (playState === 'KICK') ? -1 : 1; if (isPAT) dirX = offenseDirection;
             if (isFieldGoalPlay) { ball.vx = dirX * ((power / 100) * 0.283); ball.vz = 0.65; } 
             else if (isPuntPlay) { ball.vx = dirX * ((power / 100) * 0.09 + 0.16); ball.vz = (power / 100) * 0.24 + 0.62; } 
@@ -2106,7 +2109,7 @@
                 let clientKicking = isMultiplayer && isMpHost && ((isFieldGoalPlay || isPAT || isPuntPlay) ? (offenseDirection === 1) : (playState === 'RECEIVE'));
                 if (!clientKicking) {
                     if (gameState === 'KICK_POWER') { meterValue += meterDelta; if (meterValue >= 100) { meterValue = 200 - meterValue; meterDelta = -Math.abs(meterDelta); } else if (meterValue <= 0) { meterValue = -meterValue; meterDelta = Math.abs(meterDelta); } } 
-                    else if (gameState === 'KICK_DIR') { dirValue += dirDelta; if (dirValue >= 1) { dirValue = 1; dirDelta = -Math.abs(dirDelta); } else if (dirValue <= -1) { dirValue = -1; dirDelta = Math.abs(dirDelta); } }
+                    else if (gameState === 'KICK_DIR') { dirValue += dirDelta; let aimLim = kickAimLimit(); if (dirValue >= aimLim) { dirValue = aimLim; dirDelta = -Math.abs(dirDelta); } else if (dirValue <= -aimLim) { dirValue = -aimLim; dirDelta = Math.abs(dirDelta); } }
                 }
 
                 if (gameState === 'KICKER_RUN_UP') { let kicker = players.find(p => p.isKicker); if (kicker) { let dirX = (kicker.x > ball.x) ? -1 : 1; kicker.x += dirX * 0.15; kicker.animTimer += 0.4; if (Math.abs(kicker.x - ball.x) <= 0.5) { kicker.x = ball.x + (dirX * 0.5); kicker.animTimer = Math.PI / 2; kickTheBall(lockedPower, lockedDir); } } }
