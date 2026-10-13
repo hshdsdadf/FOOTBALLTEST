@@ -282,6 +282,8 @@
 
         // ONLINE MULTIPLAYER GLOBALS
         let myPeer = null;
+        window._mpMirror = false; // guest only: whole view is mirrored left<->right so BOTH players attack toward the left of THEIR screen
+        window._mpOverlay = false;
         let mpConnection = null;
         let isMultiplayer = false;
         let isMpHost = false;
@@ -527,6 +529,7 @@
                     else if (rot === 1) { X = cxp - th*s/2 + ly; Y = cyp + tw*s/2 - lx - 1; }
                     else if (rot === 2) { X = cxp + th*s/2 - ly - 1; Y = cyp - tw*s/2 + lx; }
                     else { X = cxp + tw*s/2 - lx - 1; Y = cyp + th*s/2 - ly - 1; }
+                    if (window._mpMirror) X = 2 * cxp - X - 1; // pre-flip: the whole view is mirrored later, which makes the text read correctly again
                     g.fillStyle = color; g.fillRect(Math.round(X), Math.round(Y), 1, 1);
                 };
                 const pass = (ox, oy, color) => {
@@ -580,8 +583,25 @@
             return c;
         }
 
+        let pixelFieldCanvasM = null, pixelFieldCanvasMTeam = null;
+        function getFieldCanvasForView() {
+            if (!window._mpMirror) return pixelFieldCanvas;
+            const team = fieldTeam || qpTeams[1];
+            if (!pixelFieldCanvasM || pixelFieldCanvasMTeam !== team) {
+                const prev = window._mpMirror; window._mpMirror = true; // bake the text pre-flipped so it reads correctly once the view is mirrored
+                try { pixelFieldCanvasM = buildPixelField(team); } catch (e) { console.error(e); }
+                window._mpMirror = prev; pixelFieldCanvasMTeam = team;
+            }
+            return pixelFieldCanvasM || pixelFieldCanvas;
+        }
+        // Online: the view is mirrored whenever the offense is driving toward +x, so whoever has the ball
+        // ALWAYS attacks toward the LEFT of both players' screens. Only re-evaluated between plays (never mid-play).
+        function updateMpViewMirror() {
+            if (!isMultiplayer) { window._mpMirror = false; return; }
+            if (['PRE_SNAP', 'PLAY_CALL', 'PRE_KICK', 'KICK_POWER', 'KICK_DIR', 'KICK_CHOICE', 'COIN_TOSS'].includes(gameState)) window._mpMirror = (offenseDirection === 1);
+        }
         window.updateFieldLogo = function(team) {
-            fieldTeam = team; pixelFieldCanvas = buildPixelField(team);
+            fieldTeam = team; pixelFieldCanvas = buildPixelField(team); pixelFieldCanvasM = null;
             setTimeout(() => { try { if (!sidelineTurf) sidelineTurf = buildSidelineTurf(); } catch (e) {} }, 60);
             setTimeout(() => { try { getStadiumGround(stadiumHomeSouth()); } catch (e) {} }, 300);
             setTimeout(() => { try { getStadiumGround(!stadiumHomeSouth()); } catch (e) {} }, 900);
@@ -675,6 +695,7 @@
             overlay.style.pointerEvents = 'auto'; overlay.style.opacity = '1';
             
             isMultiplayer = true;
+            window._mpMirror = false; // view orientation is decided every frame from who has the ball (see updateMpViewMirror)
             isMpHost = host;
             isMpClient = !host;
             window._mpSeq = 0; window._mpLastSeq = 0; window._mpPk = 0; window._mpLastGs = undefined;
@@ -770,7 +791,7 @@
         // Multiplayer state serialization (Host -> Client)
         // Compact array format (much smaller + faster to parse than keyed objects). Roster flags
         // (team side, kicker, QB...) change rarely, so they ride along only on some packets.
-        function serializeState() {
+        function serializeState(withRoster) {
             const r = v => Math.round((v || 0) * 100) / 100;
             const b = v => v ? 1 : 0;
             let p2Idx = players.findIndex(p => p === p2Player);
@@ -798,6 +819,7 @@
                 ]),
                 refs: refs.map(f => [r(f.x), r(f.y), f.facing, r(f.animTimer), f.state, b(f.hasFlag), f.id])
             };
+            if (withRoster) out.ros = players.map(p => [b(p.isCPU), b(p.isKicker), b(p.isLineman), b(p.isQB), b(p.isReturner), b(p.isMLB), p.skinTone, r(p.girth)]);
             return out;
         }
 
@@ -868,6 +890,13 @@
         }
 
         // Multiplayer state deserialization (Client receives)
+        function applyMpRoster(ros) {
+            for (let i = 0; i < ros.length && i < players.length; i++) {
+                const ro = ros[i], p = players[i];
+                p.isCPU = !!ro[0]; p.isKicker = !!ro[1]; p.isLineman = !!ro[2]; p.isQB = !!ro[3];
+                p.isReturner = !!ro[4]; p.isMLB = !!ro[5]; p.skinTone = ro[6]; p.girth = ro[7];
+            }
+        }
         function applyMpPlayerMeta(p, d) {
             const m = d[11] | 0;
             p.isCPU = !!(m & 1); p.isKicker = !!(m & 2); p.isLineman = !!(m & 4); p.isQB = !!(m & 8);
@@ -880,6 +909,9 @@
             if (data.q !== undefined) {
                 if (data.q <= (window._mpLastSeq || 0)) return;
             }
+            // new hosts put team/role in every player entry; an older host only sends a separate roster
+            const hasMeta = !data.pls.length || data.pls[0].length >= 14;
+            if (!hasMeta && players.length !== data.pls.length && !data.ros) return;
             if (data.q !== undefined) window._mpLastSeq = data.q;
 
             // Client handles host pausing
@@ -937,12 +969,13 @@
 
             // Reconstruct arrays if needed
             if (players.length !== data.pls.length) {
-                players = data.pls.map(dp => createPlayer(dp[0], dp[1], !!(dp[11] & 1), !!(dp[11] & 2)));
+                players = data.pls.map((dp, i) => hasMeta ? createPlayer(dp[0], dp[1], !!(dp[11] & 1), !!(dp[11] & 2)) : createPlayer(dp[0], dp[1], !!data.ros[i][0], !!data.ros[i][1]));
             }
+            if (!hasMeta && data.ros) applyMpRoster(data.ros);
 
             for (let i = 0; i < players.length; i++) {
                 const d = data.pls[i], p = players[i], f = d[4];
-                applyMpPlayerMeta(p, d); // team/role/skin come with the position data, so they can never be out of step with it
+                if (hasMeta) applyMpPlayerMeta(p, d); // team/role/skin come with the position data, so they can never be out of step with it
                 p.targetX = d[0]; p.targetY = d[1];
                 if (!(window._mpPredicting && p === p2Player)) { p.facing = d[2]; p.animTimer = d[3]; }
                 p.isDiving = !!(f & 1); p.isTackling = !!(f & 2); p.isLunging = !!(f & 4); p.isMissedTackle = !!(f & 8);
@@ -1005,6 +1038,7 @@
                 if (keys['ArrowRight'] || keys['KeyD']) inputX += 1; 
             }
             
+            if (window._mpMirror) inputX = -inputX; // screen is mirrored: screen-right is world-left
             let payload = { dx: inputX, dy: inputY, act: keys['Space'] || false };
             if (clientPassRequest) {
                 payload.pass = clientPassRequest;
@@ -1379,6 +1413,7 @@
 
         function updatePassProjection() {
             let dx = aimStartX - aimCurrentX; let dy = aimStartY - aimCurrentY;
+            if (window._mpMirror) dx = -dx;
             let qbScreen = toScreen(player.x, player.y); let targetScreenX = qbScreen.x + (dx * 3.5); let targetScreenY = qbScreen.y + (dy * 3.5); let worldPos = screenToWorldGround(targetScreenX, targetScreenY);
             projectedDestX = Math.max(-5, Math.min(FIELD_LENGTH_YARDS + 5, worldPos.x)); projectedDestY = Math.max(-(FIELD_WIDTH_YARDS/2) - 5, Math.min((FIELD_WIDTH_YARDS/2) + 5, worldPos.y));
             let actualDist = Math.sqrt(Math.pow(projectedDestX - player.x, 2) + Math.pow(projectedDestY - player.y, 2)); projectedHangTime = Math.max(45, actualDist * 2.5);
@@ -1440,7 +1475,7 @@
         function toScreen(yardX, yardY) {
             let dx = (yardX - camera.currentX) * camera.zoom * X_STRETCH; let dy = (yardY - camera.currentY) * camera.zoom;
             const renderCenterY = canvas.height * 0.6; let screenX = (canvas.width / 2) + dx + (dy * camera.skew) + screenShake.x; let screenY = renderCenterY + (dy * camera.pitch) + screenShake.y;
-            return { x: screenX, y: screenY };
+            return { x: (window._mpOverlay ? canvas.width - screenX : screenX), y: screenY };
         }
 
         function formatClock(sec) { sec = Math.max(0, Math.ceil(sec)); let m = Math.floor(sec / 60); let s = sec % 60; return m + ':' + (s < 10 ? '0' : '') + s; }
@@ -1586,6 +1621,7 @@
                     document.getElementById('btn-pause').style.display = 'none';
                     canvas.style.display = 'none';
                     if (isMultiplayer && myPeer) { myPeer.destroy(); myPeer = null; mpConnection = null; isMultiplayer = false; }
+                    if (window._mpMirror || pixelFieldCanvasM) { window._mpMirror = false; pixelFieldCanvas = null; pixelFieldCanvasM = null; }
                     isQuickPlay = false; quickPlayConfig = null; QUARTER_LENGTH_SECONDS = 180; penaltyData = null; flagsOnField = [];
                     document.getElementById('sb-label-you').textContent = "YOU"; document.getElementById('sb-label-cpu').textContent = "CPU";
                     document.querySelector('#scoreboard .sb-team.you').style.backgroundColor = ''; document.querySelector('#scoreboard .sb-team.cpu').style.backgroundColor = '';
@@ -2078,8 +2114,9 @@
                     const dc = mpConnection.dataChannel;
                     if (!dc || dc.bufferedAmount < 32768) { // skip a frame instead of piling up lag if the network is behind
                         window._mpPk = (window._mpPk || 0) + 1;
+                        const withRoster = (window._mpPk % 15 === 1) || window._mpLastGs !== gameState; // legacy roster: only for older guest pages still cached
                         window._mpLastGs = gameState;
-                        mpConnection.send(serializeState());
+                        mpConnection.send(serializeState(withRoster));
                     }
                 }
             }
@@ -2184,6 +2221,7 @@
                         if (isP1 && !player.isBlocking && !player.isDiving) {
                             player.isDiving = true; player.diveTimer = 0; let dx = 0; let dy = 0;
                             if (joystick && joystick.active) { dx = joystick.normX; dy = joystick.normY; } else { if (keys['ArrowUp'] || keys['KeyW']) dy -= 1; if (keys['ArrowDown'] || keys['KeyS']) dy += 1; if (keys['ArrowLeft'] || keys['KeyA']) dx -= 1; if (keys['ArrowRight'] || keys['KeyD']) dx += 1; }
+                            if (window._mpMirror) dx = -dx; // mirrored view: screen-right is world-left
                             if (dx === 0 && dy === 0) dx = player.facing;
                             let diveDir = screenInputToWorldDir(dx, dy); player.diveDirX = diveDir.x; player.diveDirY = diveDir.y;
                         }
@@ -2425,6 +2463,7 @@
                         else if (player.diveTimer >= 60) { player.isDiving = false; player.diveTimer = 0; }
                     } else if (['PLAYING', 'BALL_IN_AIR', 'BALL_LOOSE'].includes(gameState)) {
                         let inputX = 0, inputY = 0; if (joystick && joystick.active) { inputX = joystick.normX; inputY = joystick.normY; if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) { inputX = 0; inputY = 0; } } else { if (keys['ArrowUp'] || keys['KeyW']) inputY -= 1; if (keys['ArrowDown'] || keys['KeyS']) inputY += 1; if (keys['ArrowLeft'] || keys['KeyA']) inputX -= 1; if (keys['ArrowRight'] || keys['KeyD']) inputX += 1; }
+                        if (window._mpMirror) inputX = -inputX; // mirrored view: screen-right is world-left
                         if (inputX !== 0 || inputY !== 0) { isMoving = true; let dir = screenInputToWorldDir(inputX, inputY); player.x += dir.x * player.speed * dir.mul; player.y += dir.y * player.speed * dir.mul; if (dir.x > 0.05) player.facing = 1; else if (dir.x < -0.05) player.facing = -1; }
                     }
                 }
@@ -3603,7 +3642,10 @@ const PXS = (function () {
         }
 
         function drawGame() {
-            ctx.imageSmoothingEnabled = false; ctx.setTransform(1, 0, 0, 1, 0, 0); drawStadium();
+            window._mpOverlay = false; ctx.imageSmoothingEnabled = false;
+            updateMpViewMirror();
+            if (window._mpMirror) ctx.setTransform(-1, 0, 0, 1, canvas.width, 0); else ctx.setTransform(1, 0, 0, 1, 0, 0);
+            drawStadium();
 
             ctx.save();
             const renderCenterY = canvas.height * 0.6;
@@ -3618,9 +3660,9 @@ const PXS = (function () {
             ctx.drawImage(getStadiumGround(stadiumHomeSouth()), -GND_XP * PPY, fieldTop - GND_AP * PPY, (120 + 2 * GND_XP) * PPY, fieldHeight + 2 * GND_AP * PPY);
 
             // the pixel field itself: one canvas pixel = 1/FPX yard, drawn with no smoothing
-            if (pixelFieldCanvas) { ctx.imageSmoothingEnabled = false; ctx.drawImage(pixelFieldCanvas, 0, fieldTop, 120 * PPY, fieldHeight); }
-            else { ctx.fillStyle = '#1a6b27'; ctx.fillRect(0, fieldTop, 120 * PPY, fieldHeight); }
-            if (fieldLogoImg && fieldLogoImg !== true) { ctx.save(); let logoSize = 22 * PPY; ctx.translate(60 * PPY, 0); ctx.scale(-1 / X_STRETCH, 1); ctx.globalAlpha = 0.6; ctx.drawImage(fieldLogoImg, -logoSize/2, -logoSize/2, logoSize, logoSize); ctx.restore(); }
+            { const fc = getFieldCanvasForView(); if (fc) { ctx.imageSmoothingEnabled = false; ctx.drawImage(fc, 0, fieldTop, 120 * PPY, fieldHeight); } else
+            { ctx.fillStyle = '#1a6b27'; ctx.fillRect(0, fieldTop, 120 * PPY, fieldHeight); } }
+            if (fieldLogoImg && fieldLogoImg !== true) { ctx.save(); let logoSize = 22 * PPY; ctx.translate(60 * PPY, 0); ctx.scale((window._mpMirror ? 1 : -1) / X_STRETCH, 1); ctx.globalAlpha = 0.6; ctx.drawImage(fieldLogoImg, -logoSize/2, -logoSize/2, logoSize, logoSize); ctx.restore(); }
 
             if (['PRE_SNAP', 'PLAYING', 'TACKLED', 'PLAY_DEAD', 'PENALTY_SEQUENCE'].includes(gameState) && lineOfScrimmage > 0 && !isPAT) {
                 let blx = lineOfScrimmage * PPY; ctx.lineWidth = Math.max(3, PPY * 0.15); ctx.strokeStyle = 'rgba(59, 130, 246, 0.8)'; ctx.beginPath(); ctx.moveTo(blx, fieldTop); ctx.lineTo(blx, fieldTop + fieldHeight); ctx.stroke();
@@ -3914,6 +3956,7 @@ const PXS = (function () {
                 ctx.restore();
             });
 
+            if (window._mpMirror) { ctx.setTransform(1, 0, 0, 1, 0, 0); window._mpOverlay = true; } // screen-space overlays (kick meter, text) must not be flipped
             let kicker = players.find(p => p.isKicker && ((isMultiplayer && isMpHost) ? !p.isCPU : !p.isCPU));
             if (isMultiplayer && isMpClient) kicker = players.find(p => p.isKicker && p.isCPU === !!window._mpClientKicks) || players.find(p => p.isKicker);
 
@@ -3938,7 +3981,7 @@ const PXS = (function () {
                     ctx.fillStyle = '#000000'; ctx.fillText(pctText, lx+4, by+4); ctx.fillStyle = '#ffffff'; ctx.fillText(pctText, lx, by);
 
                     if (gameState === 'KICK_DIR') {
-                        ctx.save(); ctx.translate(kScreen.x, kScreen.y + 10);
+                        ctx.save(); ctx.translate(kScreen.x, kScreen.y + 10); if (window._mpMirror) ctx.scale(-1, 1); // draw in world orientation, then mirror about the kicker
                         let baseAngle = (offenseDirection === -1) ? Math.PI : 0; let swingAngle = dirValue * (Math.PI / 2.5); ctx.rotate(baseAngle);
                         let isSweet = Math.abs(dirValue) <= 0.25; ctx.fillStyle = isSweet && (Math.floor(Date.now() / 80) % 2 === 0) ? '#ffffff' : '#22c55e';
                         let rad = 120; let pSize = 6;
@@ -3960,7 +4003,7 @@ const PXS = (function () {
                     ctx.font = '16px "Press Start 2P", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillStyle = '#ffffff'; ctx.fillText(gameState === 'KICK_POWER' ? "TAP ACTION: POWER" : "TAP ACTION: ANGLE", meterX, meterY - 15);
 
                     if (gameState === 'KICK_DIR') {
-                        ctx.save(); ctx.translate(meterX, meterY + meterH + 20); 
+                        ctx.save(); ctx.translate(meterX, meterY + meterH + 20); if (window._mpMirror) ctx.scale(-1, 1);
                         let baseAngle = (playState === 'KICK') ? Math.PI : 0; let swingAngle = dirValue * (Math.PI / 3); ctx.rotate(baseAngle + swingAngle);
                         ctx.fillStyle = '#ef4444'; ctx.lineWidth = 3; ctx.strokeStyle = '#ffffff';
                         ctx.beginPath(); ctx.moveTo(90, 0); ctx.lineTo(20, -15); ctx.lineTo(30, 0); ctx.lineTo(20, 15); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -4053,7 +4096,7 @@ const PXS = (function () {
                 accumulator -= timeStep;
             }
 
-            drawGame();
+            drawGame(); window._mpOverlay = false;
             requestAnimationFrame(loop);
         }
 
