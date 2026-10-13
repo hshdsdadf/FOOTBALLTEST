@@ -700,6 +700,7 @@
             isMpClient = !host;
             window._mpSeq = 0; window._mpLastSeq = 0; window._mpPk = 0; window._mpLastGs = undefined;
             window._mpKickPrev = false; window._mpClientKicks = false; window._lastUi = undefined;
+            window._mpPuState = null; window._mpPuId = 0; window._mpPredBall = null; window._mpHostHud = ''; window._mpBallDest = null;
             
             // Hardcode matchup for MP
             qpState.homeIdx = 1; qpState.awayIdx = 0;
@@ -808,6 +809,9 @@
                 b: [r(ball.x), r(ball.y), r(ball.z), r(ball.spinAngle), b(ball.isDeadPass), Math.round((ball.vx || 0) * 10000) / 10000, Math.round((ball.vy || 0) * 10000) / 10000, Math.round((ball.vz || 0) * 10000) / 10000],
                 c: [r(camera.target ? camera.target.x : 60), r(camera.target ? camera.target.y : 0), r(camera.zoom)],
                 ui: determineMpUIState(),
+                pu: window._mpPuState || null,
+                hd: (hud.innerHTML.length < 600 ? hud.innerHTML : ''),
+                dst: (isPassing && gameState === 'BALL_IN_AIR') ? [r(ball.destX), r(ball.destY)] : null,
                 // Kick-play flags + kick meter (client needs these to draw/run the meter)
                 fg: b(isFieldGoalPlay), pat: b(isPAT), pnt: b(isPuntPlay),
                 mv: r(meterValue), dv: Math.round((dirValue || 0) * 1000) / 1000, md: r(Math.abs(meterDelta)),
@@ -980,6 +984,17 @@
             window._uiN = ((window._uiN || 0) + 1) % 30;
             if (data.ui !== window._lastUi || window._uiN === 0) { window._lastUi = data.ui; syncUI(data.ui); }
 
+            // Mirrored host pop-up (TACKLED!, 1ST & 10, touchdown/penalty cards...): state based, so a lost packet can't hide it
+            if (data.pu && data.gs !== 'PAUSED') {
+                if (window._mpPuId !== data.pu[0]) { window._mpPuId = data.pu[0]; window._mpPopup = true; showUI(data.pu[1], data.pu[2]); uiContainer.style.pointerEvents = 'none'; }
+                else if (!window._mpPopup || uiContainer.style.display === 'none') { window._mpPopup = true; showUI(data.pu[1], data.pu[2]); uiContainer.style.pointerEvents = 'none'; }
+            } else if (window._mpPuId) {
+                window._mpPuId = 0;
+                if (window._mpPopup) { window._mpPopup = false; hideUI(); }
+            }
+            window._mpHostHud = data.hd || '';
+            window._mpBallDest = data.dst || null;
+
             // Reconstruct arrays if needed
             if (players.length !== data.pls.length) {
                 players = data.pls.map((dp, i) => hasMeta ? createPlayer(dp[0], dp[1], !!(dp[11] & 1), !!(dp[11] & 2)) : createPlayer(dp[0], dp[1], !!data.ros[i][0], !!data.ros[i][1]));
@@ -992,7 +1007,7 @@
                 p.targetX = d[0]; p.targetY = d[1];
                 if (!(window._mpPredicting && p === p2Player)) { p.facing = d[2]; p.animTimer = d[3]; }
                 p.isDiving = !!(f & 1); p.isTackling = !!(f & 2); p.isLunging = !!(f & 4); p.isMissedTackle = !!(f & 8);
-                p.hasBall = !!(f & 16); p.isBlocking = !!(f & 32); p.isTargetReceiver = !!(f & 64); p.isIntercepter = !!(f & 128);
+                p.hasBall = !!(f & 16) && !(window._mpPredBall && p === p2Player); p.isBlocking = !!(f & 32); p.isTargetReceiver = !!(f & 64); p.isIntercepter = !!(f & 128);
                 p.hopOffset = d[5]; p.diveTimer = d[6]; p.tackleAnimTimer = d[7]; p.tackleTimer = d[8];
                 p.hitDirX = d[9]; p.hitDirY = d[10];
             }
@@ -1033,6 +1048,7 @@
                     hudHtml = `<div style="color: #ef4444; margin-top: 20px; text-shadow: 3px 3px 0 #000; font-size: 24px; animation: pulsePoss 1s infinite;">DEFENSE: GET READY!</div>`;
                 }
             }
+            if (!hudHtml && window._mpHostHud && !['PRE_SNAP', 'PLAY_CALL'].includes(gameState)) hudHtml = window._mpHostHud; // host banners (INTERCEPTION!, etc.)
             if (hudHtml !== window._lastHud) { window._lastHud = hudHtml; hud.innerHTML = hudHtml; }
 
             const sbKey = [playerScore, cpuScore, quarter, Math.ceil(gameClock), down, lineOfScrimmage, firstDownLine, offenseDirection, gameState, isPAT].join('|');
@@ -1441,6 +1457,11 @@
             if (isMultiplayer && isMpClient) {
                 if (Math.hypot(aimStartX - aimCurrentX, aimStartY - aimCurrentY) < 15) return;
                 clientPassRequest = { x: projectedDestX, y: projectedDestY, ht: projectedHangTime };
+                if (player) { // start the throw locally right away instead of waiting a full round trip for the host
+                    const ht = Math.max(20, projectedHangTime || 45), z0 = 1.2, g = 0.008;
+                    window._mpPredBall = { x: player.x, y: player.y, z: z0, vx: (projectedDestX - player.x) / ht, vy: (projectedDestY - player.y) / ht,
+                        vz: ((1.0 - z0) / ht) + (g * ht / 2) + (g / 2), age: 0, dx: projectedDestX, dy: projectedDestY };
+                }
                 return; // Let the host actually calculate and simulate the throw
             }
 
@@ -1488,15 +1509,16 @@
 
         function showUI(htmlContent, extraClass = '') { if (isMultiplayer && isMpHost) mpMirrorPopup(htmlContent, extraClass); uiContainer.innerHTML = `<div class="ui-panel ${extraClass}">${htmlContent}</div>`; uiContainer.style.display = 'flex'; }
         function mpMirrorPopup(html, cls) {
+            // The guest channel is unreliable, so one-off popup messages could be lost or arrive out of order.
+            // Instead the current popup rides along in every state packet (see serializeState 'pu') until it is hidden.
             try {
-                if (!mpConnection || !mpConnection.open) return;
                 // host-only menus / things the guest already gets through its own UI states are not mirrored
-                if (/playcall-grid|makeChoice|PAUSED|CAMERA|FLIPPING|COIN TOSS|IT'S |YOUR CHOICE|retro-coin/.test(html)) return;
+                if (/playcall-grid|makeChoice|PAUSED|CAMERA|FLIPPING|COIN TOSS|IT'S |YOUR CHOICE|retro-coin/.test(html)) { window._mpPuState = null; return; }
                 const clean = html.replace(/<button[\s\S]*?<\/button>/g, '');
-                mpConnection.send({ type: 'ui_popup', html: clean, cls: cls || '' });
+                window._mpPuState = [(window._mpPuSeq = (window._mpPuSeq || 0) + 1), clean, cls || ''];
             } catch (e) {}
         }
-        function hideUI() { if (isMultiplayer && isMpHost && mpConnection && mpConnection.open) { try { mpConnection.send({ type: 'ui_hide' }); } catch (e) {} } uiContainer.style.display = 'none'; uiContainer.innerHTML = ''; hud.innerHTML = ''; }
+        function hideUI() { if (isMultiplayer && isMpHost) window._mpPuState = null; uiContainer.style.display = 'none'; uiContainer.innerHTML = ''; hud.innerHTML = ''; }
 
         function toScreen(yardX, yardY) {
             let dx = (yardX - camera.currentX) * camera.zoom * X_STRETCH; let dy = (yardY - camera.currentY) * camera.zoom;
@@ -2061,7 +2083,13 @@
                 }
 
                 // INTERPOLATION (Butter-Smooth Movement)
-                if (ball.targetX !== undefined) {
+                const pb = window._mpPredBall;
+                if (pb && (gameState === 'PLAYING' || gameState === 'BALL_IN_AIR') && ++pb.age < 40) {
+                    // my own throw, flown locally until the host's ball takes over (then hand off smoothly)
+                    if (gameState === 'BALL_IN_AIR' && ball.targetX !== undefined && pb.age > 8) { window._mpPredBall = null; }
+                    else { pb.x += pb.vx; pb.y += pb.vy; pb.z += pb.vz; pb.vz -= 0.008; if (pb.z < 0) pb.z = 0; ball.x = pb.x; ball.y = pb.y; ball.z = pb.z; }
+                } else if (pb) { window._mpPredBall = null; }
+                if (!window._mpPredBall && ball.targetX !== undefined) {
                     if (gameState === 'BALL_IN_AIR' || gameState === 'BALL_LOOSE') { // keep the ball flying between packets so it isn't choppy/late
                         ball.targetX += ball.hvx || 0; ball.targetY += ball.hvy || 0; ball.targetZ += ball.hvz || 0; ball.hvz = (ball.hvz || 0) - 0.008;
                         if (ball.targetZ <= 0) { ball.targetZ = 0; ball.hvx *= 0.6; ball.hvy *= 0.6; ball.hvz = Math.abs(ball.hvz) * 0.4; if (ball.hvz < 0.15) { ball.hvx = ball.hvy = ball.hvz = 0; } }
@@ -2123,9 +2151,13 @@
                     if (isAimingPass && p2Player && gameState === 'PLAYING') { // same pass-aim framing the host gets: pull back to show where the throw is going
                         const sx = projectedDestX - p2Player.x, sy = projectedDestY - p2Player.y, spread = Math.hypot(sx, sy);
                         tx = p2Player.x + sx * 0.4; ty = p2Player.y + sy * 0.4;
-                        tz = Math.max(camera.baseZoom * 0.50, Math.min(camera.baseZoom, camera.baseZoom / (1 + spread * 0.015))); kPos = 0.3; kZoom = 0.08;
+                        tz = Math.max(camera.baseZoom * 0.50, Math.min(camera.baseZoom, camera.baseZoom / (1 + spread * 0.015))); kPos = 0.25; kZoom = 0.1;
+                    } else if (window._mpPredBall && gameState === 'PLAYING') { // my throw just left my hand: frame it right away
+                        const pbl = window._mpPredBall; tx = pbl.x + (pbl.dx - pbl.x) * 0.3; ty = pbl.y + (pbl.dy - pbl.y) * 0.3; tz = camera.zoom; kPos = 0.2; kZoom = 0.08;
                     } else if ((gameState === 'BALL_IN_AIR' || gameState === 'BALL_LOOSE') && !(data_isKick())) {
-                        tx = ball.x; ty = ball.y; tz = camera.baseZoom; kPos = 0.3; kZoom = 0.08;
+                        const dd = window._mpBallDest; // lead toward where the pass is going so the landing spot stays in view
+                        tx = ball.x + (dd ? (dd[0] - ball.x) * 0.3 : 0); ty = ball.y + (dd ? (dd[1] - ball.y) * 0.3 : 0);
+                        tz = camera.baseZoom * 0.9; kPos = 0.2; kZoom = 0.06;
                     } else if ((gameState === 'PRE_SNAP' || gameState === 'PLAYING') && p2Player) {
                         let focus = p2Player;
                         if (gameState === 'PLAYING' && offenseDirection === 1) { const bc = players.find(p => p.hasBall); if (bc) focus = bc; }
